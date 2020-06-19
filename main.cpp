@@ -84,9 +84,6 @@ void ServerProc(sockaddr_in _sockAddr)
 				memset(buffer, 0, sizeof(buffer));
 				const int ret =	recv(events[i].data.fd, buffer, sizeof(buffer), 0);
 
-				strcpy(buffer, "server reply!");
-				send(events[i].data.fd, buffer, sizeof(buffer), 0);
-
 				if(ret <= 0)
 				{
 					close(events[i].data.fd);
@@ -95,6 +92,8 @@ void ServerProc(sockaddr_in _sockAddr)
 				else
 				{
 					std::cout << "server recv:" << buffer << std::endl;
+					strcpy(buffer, "server reply!");
+					send(events[i].data.fd, buffer, sizeof(buffer), 0);
 				}
 			}
 			else
