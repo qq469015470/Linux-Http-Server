@@ -9,6 +9,9 @@
 #include <string.h>
 #include <thread>
 #include <chrono>
+#include <vector>
+
+#include "web.h"
 
 void ServerProc(sockaddr_in _sockAddr)
 {
@@ -155,6 +158,15 @@ void ClientProc(sockaddr_in _serverAddr)
 
 int main()
 {
+	web::Router test;
+
+	test.RegisterUrl("test/post", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} });
+	for (const auto& item: test.GetUrlParams("test/post"))
+	{
+		std::cout << item.type->name() << std::endl;
+	}
+
+	return 0;
 
 	sockaddr_in serverAddr = {};
 
