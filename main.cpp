@@ -10,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <vector>
+#include <memory>
 
 #include "web.h"
 
@@ -158,12 +159,21 @@ void ClientProc(sockaddr_in _serverAddr)
 
 int main()
 {
-	web::Router test;
+	std::unique_ptr<web::Router> test(new web::Router);
 
-	test.RegisterUrl("test/post", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} });
-	for (const auto& item: test.GetUrlParams("test/post"))
+	test->RegisterUrl("test/post", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} });
+	for (const auto& item: test->GetUrlParams("test/post"))
 	{
 		std::cout << item.type->name() << std::endl;
+	}
+
+	web::HttpServer server(std::move(test));
+
+	server.Listen(80);
+
+	while(true)
+	{
+		std::this_thread::sleep_for(std::chrono::seconds(1));
 	}
 
 	return 0;
