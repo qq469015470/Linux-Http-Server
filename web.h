@@ -35,12 +35,67 @@ namespace web
 		}
 	};
 
+	class HttpRequest
+	{
+	private:
+
+
+	public:
+		HttpRequest(std::string_view _buffers)
+		{
+			
+		}
+	};
+
 	class HttpServer
 	{
 	private:
 		std::unique_ptr<Router> router;
 
 		bool listenSignal;
+
+		static HttpRequest GetHttpRequest(const int _epfd, epoll_event* _event)
+		{
+			bool finish(false);
+			int contentLen(0);
+			std::string content;
+
+			std::cout << "开始接收报文" << std::endl;
+			do
+			{
+				std::cout << "循环" << std::endl;
+
+				char buffer[1024];
+
+				memset(buffer, 0, sizeof(buffer));
+
+				const int recvLen = recv(_event->data.fd, buffer, sizeof(buffer) - 1, 0);
+
+				std::cout << "字节数:" << recvLen <<  std::endl;
+
+				if(recvLen <= 0)
+				{
+					finish = true;
+				}
+
+				contentLen += recvLen;
+
+				//请求头部接收完毕
+				content += buffer;
+
+				if(content.find("\r\n\r\n") != std::string::npos)
+				{
+					finish = true;
+				}
+
+			}
+			while(!finish);
+
+			std::cout << "报文结束" << std::endl;
+			std::cout << content << std::endl;			
+
+			return HttpRequest("");
+		}
 
 		static void ListenProc(bool* _listenSignal, sockaddr_in _sockAddr)
 		{
@@ -52,13 +107,17 @@ namespace web
 				return;
 			}
 		
-			bind(serverSock, reinterpret_cast<sockaddr*>(&_sockAddr), sizeof(_sockAddr));
+			if(bind(serverSock, reinterpret_cast<sockaddr*>(&_sockAddr), sizeof(_sockAddr)) == -1)
+			{
+				std::cout << "bind socket failed!" << std::endl;
+				return;
+			}
 		
 			const int max = 20;
 		
 			listen(serverSock, max);
 		
-			std::cout << "server start listen..." << std::endl;
+			std::cout << "server start listen..." << " -port " << ntohs(_sockAddr.sin_port)  << std::endl;
 		
 			epoll_event ev;
 			epoll_event events[max];
@@ -91,6 +150,7 @@ namespace web
 		
 				for(int i = 0; i < nfds; i++)
 				{
+					//该描述符为服务器则accept
 					if(events[i].data.fd == serverSock)
 					{
 						sockaddr_in clntAddr = {};
@@ -109,24 +169,13 @@ namespace web
 						std::cout << "accept client_addr" << inet_ntoa(clntAddr.sin_addr) << std::endl;
 		
 					}
+					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
 					{
-						char buffer[256];
-		
-						memset(buffer, 0, sizeof(buffer));
-						const int ret =	recv(events[i].data.fd, buffer, sizeof(buffer), 0);
-		
-						if(ret <= 0)
-						{
-							close(events[i].data.fd);
-							epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &events[i]);
-						}
-						else
-						{
-							std::cout << "server recv:" << buffer << std::endl;
-							strcpy(buffer, "server reply!");
-							send(events[i].data.fd, buffer, sizeof(buffer), 0);
-						}
+						HttpServer::GetHttpRequest(epfd, &events[i]);
+
+						close(events[i].data.fd);
+						epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &events[i]);	
 					}
 					else
 					{
@@ -137,7 +186,7 @@ namespace web
 			}
 		
 			close(serverSock);
-
+			std::cout << "server close" << std::endl;
 		}
 
 	public:
@@ -159,6 +208,16 @@ namespace web
 			std::thread proc(HttpServer::ListenProc, &this->listenSignal, serverAddr);
 
 			proc.detach();
+		}
+
+		void Stop()
+		{
+			if(this->listenSignal == false)
+			{
+				throw std::runtime_error("server is not listening.");
+			}
+
+			this->listenSignal = false;
 		}
 	};
 };
