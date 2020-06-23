@@ -4,6 +4,7 @@
 #include <typeinfo>
 #include <stdexcept>
 #include <memory>
+#include <fstream>
 
 namespace web
 {
@@ -13,35 +14,40 @@ namespace web
 		const std::type_info* type;
 	};
 
-	class Router
+	enum HttpType
+	{
+		GET,
+		POST,	
+	};
+
+	class HttpAttr
 	{
 	private:
-		using Callback = void();
-
-		std::map<std::string, std::vector<UrlParam>> urls;
-		std::map<std::string, Callback*> callbackFuns;
+		std::string key;
+		std::string values;
 
 	public:
-		void RegisterUrl(std::string_view _url, std::vector<UrlParam> _params, Callback* _func)
+		HttpAttr(std::string _key, const std::vector<std::string>& _values):
+			key(std::move(_key))
 		{
-			if(this->urls.find(_url.data()) != this->urls.end())
+			for(const auto& item: _values)
 			{
-				throw std::logic_error("url has been register");
+				this->values += item + ",";
 			}
 
-			this->urls.insert(std::pair<std::string, std::vector<UrlParam>>(std::string(_url), std::move(_params)));
-			this->callbackFuns.insert(std::pair<std::string, Callback*>(_url, std::move(_func)));
+			this->values.pop_back();
 		}
 
-		const std::vector<UrlParam>& GetUrlParams(std::string_view _url) const
+		std::string_view GetKey() const
 		{
-			return this->urls.at(_url.data());
+			return this->key;
 		}
 
-		const Callback* GetUrlCallback(std::string_view _url) const
+		std::string_view GetValues() const
 		{
-			return this->callbackFuns.at(_url.data());
+			return this->values;	
 		}
+
 	};
 
 	class HttpRequest
@@ -57,12 +63,18 @@ namespace web
 			std::string::size_type left = 0;
 			std::string::size_type right = _buffers.find(" ");
 
-			this->type = _buffers.substr(left,right - left);
+			if(right != std::string::npos)
+				this->type = _buffers.substr(left,right - left);
+			else
+				throw std::runtime_error("type not exists");
 
 			left = right + 1;
 			right = _buffers.find(" ", left);
 
-			this->url = _buffers.substr(left, right - left);
+			if(right != std::string::npos)
+				this->url = _buffers.substr(left, right - left);
+			else
+				throw std::runtime_error("url not exists");
 		}
 
 		std::string_view GetType() const
@@ -75,6 +87,100 @@ namespace web
 			return this->url;
 		}
 	};
+
+	class HttpResponse
+	{
+	private:
+		std::vector<char> content;
+		size_t size;
+
+		static inline std::string GetSpec(int _code)
+		{
+			switch (_code)
+			{
+				case 200:
+					return std::string("OK");
+					break;
+				case 404:
+					return std::string("NOT FOUND");
+				default:
+					return std::string("NONE SPEC");
+			}
+		}
+
+	public:
+		HttpResponse(int _stateCode, const char* _body, unsigned long _bodyLen):
+			content({'\0'}),
+			size(0)
+		{
+			std::string header;
+			
+			header = "HTTP/1.1 " + std::to_string(_stateCode) + " " + HttpResponse::GetSpec(_stateCode) + "\r\n";
+			header += "Content-Length: " + std::to_string(_bodyLen) + "\r\n";
+			header += "\r\n";
+
+			this->content.resize(header.size() + _bodyLen);
+
+			std::copy(header.data(), header.data() + header.size(), this->content.data());
+			std::copy(_body, _body + _bodyLen, this->content.data() + header.size());
+		}
+
+		const char* GetContent() const
+		{
+			return this->content.data();
+		}
+
+		size_t GetSize() const
+		{
+			return this->content.size();
+		}
+	};
+
+	class Router
+	{
+	private:
+		using Callback = HttpResponse();
+
+		struct Info
+		{
+			HttpType type;
+			std::string url;
+			std::vector<UrlParam> params;
+			Callback* callback;
+		};
+
+
+		std::map<std::string, Info> infos;
+
+	public:
+		void RegisterUrl(HttpType _type, std::string_view _url, std::vector<UrlParam> _params, Callback* _func)
+		{
+			if(this->infos.find(_url.data()) != this->infos.end())
+			{
+				throw std::logic_error("url has been register");
+			}
+
+			Info temp = {};
+
+			temp.type = _type;
+			temp.url = std::string(_url.data());
+			temp.params = std::move(_params);
+			temp.callback = std::move(_func);
+	
+			this->infos.insert(std::pair<std::string, Info>(temp.url, std::move(temp)));
+		}
+
+		const std::vector<UrlParam>& GetUrlParams(std::string_view _url) const
+		{
+			return this->infos.at(_url.data()).params;
+		}
+
+		const Callback* GetUrlCallback(std::string_view _url) const
+		{
+			return this->infos.at(_url.data()).callback;
+		}
+	};
+
 
 	class HttpServer
 	{
@@ -124,6 +230,42 @@ namespace web
 			std::cout << content << std::endl;			
 
 			return HttpRequest(std::move(content));
+		}
+
+		static void SendHttpResponse(int _sockfd, const HttpResponse& _response)
+		{
+			std::cout << "响应报文:" << std::endl;
+			//std::cout << _response.GetContent() << std::endl;
+
+			const size_t contentSize = _response.GetSize();
+			const char* content = _response.GetContent();
+
+			send(_sockfd, content, contentSize, 0);
+		}
+
+		static std::vector<char> GetRootFile(std::string_view _view)
+		{
+			const std::string root = "wwwroot/";
+
+			std::ifstream file(root + _view.data());
+			std::vector<char> bytes;
+
+			if(file.is_open())
+			{
+				file.seekg(0, std::ios::end);
+				bytes.resize(file.tellg());
+				file.seekg(0, std::ios::beg);
+	
+				file.read(bytes.data(), bytes.size());
+			}
+			else
+			{
+				throw std::runtime_error("could not find wwwroot file");
+			}
+
+			file.close();
+
+			return bytes;
 		}
 
 		static void ListenProc(HttpServer* _httpServer, sockaddr_in _sockAddr)
@@ -201,17 +343,39 @@ namespace web
 					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
 					{
-						const HttpRequest request = HttpServer::GetHttpRequest(events[i].data.fd);
-
-						std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
 
 						try
 						{
-							_httpServer->router->GetUrlCallback(request.GetUrl())();
+							const HttpRequest request = HttpServer::GetHttpRequest(events[i].data.fd);
+			
+
+							std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
+							try
+							{
+								std::cout << "1" << std::endl;
+								HttpResponse response = _httpServer->router->GetUrlCallback(request.GetUrl())();
+								std::cout << "2" << std::endl;	
+								HttpServer::SendHttpResponse(events[i].data.fd, std::move(response));
+								std::cout << "3" << std::endl;
+							}
+							catch (std::out_of_range _ex)
+							{
+								try
+								{
+									const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
+									HttpResponse response(200, body.data(), body.size());
+	
+									HttpServer::SendHttpResponse(events[i].data.fd, std::move(response));
+								}
+								catch(std::runtime_error _ex)
+								{	
+									std::cout << _ex.what() << std::endl;
+								}
+							}
 						}
-						catch (std::out_of_range _ex)
+						catch(std::runtime_error _ex)
 						{
-							std::cout << "路由器没有找到匹配地址!" << std::endl;
+							std::cout << _ex.what() << std::endl;
 						}
 
 						close(events[i].data.fd);
@@ -260,4 +424,38 @@ namespace web
 			this->listenSignal = false;
 		}
 	};
+
+	HttpResponse View(std::string_view _path)
+	{
+		const std::string root ="view/";
+		const std::string path = root + _path.data();
+
+		std::ifstream file(path);
+
+		std::cout << "return view \"" << path << "\"" << std::endl;
+
+		int stateCode(200);
+		std::vector<char> body;
+
+		if(file.is_open())
+		{
+			file.seekg(0, std::ios::end);
+			body.resize(file.tellg());
+			file.seekg(0, std::ios::beg);
+			
+			file.read(body.data(), body.size());
+		}
+		else
+		{
+			const char* temp = "Ops! file not found!";
+
+			body.resize(strlen(temp));
+
+			std::copy(temp, temp + body.size(), body.data());
+		}
+
+		file.close();
+
+		return HttpResponse(stateCode, body.data(), body.size());
+	}
 };
