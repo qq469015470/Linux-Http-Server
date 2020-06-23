@@ -16,34 +16,63 @@ namespace web
 	class Router
 	{
 	private:
+		using Callback = void();
+
 		std::map<std::string, std::vector<UrlParam>> urls;
+		std::map<std::string, Callback*> callbackFuns;
 
 	public:
-		void RegisterUrl(std::string_view _url, std::vector<UrlParam> _params)
+		void RegisterUrl(std::string_view _url, std::vector<UrlParam> _params, Callback* _func)
 		{
 			if(this->urls.find(_url.data()) != this->urls.end())
 			{
 				throw std::logic_error("url has been register");
 			}
 
-			this->urls.insert(std::pair<std::string, std::vector<UrlParam>>(std::move(_url), std::move(_params)));
+			this->urls.insert(std::pair<std::string, std::vector<UrlParam>>(std::string(_url), std::move(_params)));
+			this->callbackFuns.insert(std::pair<std::string, Callback*>(_url, std::move(_func)));
 		}
 
-		const std::vector<UrlParam>& GetUrlParams(std::string_view _url)
+		const std::vector<UrlParam>& GetUrlParams(std::string_view _url) const
 		{
 			return this->urls.at(_url.data());
+		}
+
+		const Callback* GetUrlCallback(std::string_view _url) const
+		{
+			return this->callbackFuns.at(_url.data());
 		}
 	};
 
 	class HttpRequest
 	{
 	private:
-
+		//请求类型(例:get post)
+		std::string type;
+		std::string url;
 
 	public:
 		HttpRequest(std::string_view _buffers)
 		{
-			
+			std::string::size_type left = 0;
+			std::string::size_type right = _buffers.find(" ");
+
+			this->type = _buffers.substr(left,right - left);
+
+			left = right + 1;
+			right = _buffers.find(" ", left);
+
+			this->url = _buffers.substr(left, right - left);
+		}
+
+		std::string_view GetType() const
+		{
+			return this->type;
+		}
+
+		std::string_view GetUrl() const
+		{
+			return this->url;
 		}
 	};
 
@@ -54,7 +83,7 @@ namespace web
 
 		bool listenSignal;
 
-		static HttpRequest GetHttpRequest(const int _epfd, epoll_event* _event)
+		static HttpRequest GetHttpRequest(int _sockfd)
 		{
 			bool finish(false);
 			int contentLen(0);
@@ -69,7 +98,7 @@ namespace web
 
 				memset(buffer, 0, sizeof(buffer));
 
-				const int recvLen = recv(_event->data.fd, buffer, sizeof(buffer) - 1, 0);
+				const int recvLen = recv(_sockfd, buffer, sizeof(buffer) - 1, 0);
 
 				std::cout << "字节数:" << recvLen <<  std::endl;
 
@@ -94,10 +123,10 @@ namespace web
 			std::cout << "报文结束" << std::endl;
 			std::cout << content << std::endl;			
 
-			return HttpRequest("");
+			return HttpRequest(std::move(content));
 		}
 
-		static void ListenProc(bool* _listenSignal, sockaddr_in _sockAddr)
+		static void ListenProc(HttpServer* _httpServer, sockaddr_in _sockAddr)
 		{
 			const int serverSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -137,7 +166,7 @@ namespace web
 				return;
 			}
 		
-			while(*_listenSignal == true)
+			while(_httpServer->listenSignal == true)
 			{
 				int nfds = epoll_wait(epfd, events, max, -1);
 		
@@ -172,7 +201,18 @@ namespace web
 					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
 					{
-						HttpServer::GetHttpRequest(epfd, &events[i]);
+						const HttpRequest request = HttpServer::GetHttpRequest(events[i].data.fd);
+
+						std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
+
+						try
+						{
+							_httpServer->router->GetUrlCallback(request.GetUrl())();
+						}
+						catch (std::out_of_range _ex)
+						{
+							std::cout << "路由器没有找到匹配地址!" << std::endl;
+						}
 
 						close(events[i].data.fd);
 						epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &events[i]);	
@@ -205,7 +245,7 @@ namespace web
 			serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 			serverAddr.sin_port = htons(_port);
 
-			std::thread proc(HttpServer::ListenProc, &this->listenSignal, serverAddr);
+			std::thread proc(HttpServer::ListenProc, this, serverAddr);
 
 			proc.detach();
 		}

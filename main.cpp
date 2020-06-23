@@ -157,12 +157,17 @@ void ClientProc(sockaddr_in _serverAddr)
 	close(clientSock);
 }
 
+void Home()
+{
+	std::cout << "Home函数触发" << std::endl;
+}
+
 int main()
 {
 	std::unique_ptr<web::Router> test(new web::Router);
 
-	test->RegisterUrl("test/post", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} });
-	for (const auto& item: test->GetUrlParams("test/post"))
+	test->RegisterUrl("/", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} }, &Home);
+	for (const auto& item: test->GetUrlParams("/"))
 	{
 		std::cout << item.type->name() << std::endl;
 	}
