@@ -164,19 +164,25 @@ web::HttpResponse Home()
 	return web::View("home/index.html");
 }
 
-int main()
+int main(int _argc, char* _argv[])
 {
+	if(_argc != 3)
+	{
+		std::cout << "only have 2 argument! frist is ipaddress, second is port." << std::endl;
+		return -1;
+	}
+
+	const char* ip = _argv[1];
+	const char* port = _argv[2];
+
+
 	std::unique_ptr<web::Router> test(new web::Router);
 
-	test->RegisterUrl(web::HttpType::GET, "/", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} }, &Home);
-	for (const auto& item: test->GetUrlParams("/"))
-	{
-		std::cout << item.type->name() << std::endl;
-	}
+	test->RegisterUrl("GET", "/", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} }, &Home);
 
 	web::HttpServer server(std::move(test));
 
-	server.Listen(1231);
+	server.Listen(ip, std::stoi(port));
 
 	while(true)
 	{

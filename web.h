@@ -12,13 +12,7 @@ namespace web
 	{
 		std::string name;
 		const std::type_info* type;
-	};
-
-	enum HttpType
-	{
-		GET,
-		POST,	
-	};
+	};	
 
 	class HttpAttr
 	{
@@ -72,7 +66,16 @@ namespace web
 			right = _buffers.find(" ", left);
 
 			if(right != std::string::npos)
+			{
 				this->url = _buffers.substr(left, right - left);
+				
+				//去掉地址?开头的参数
+				right = _buffers.find("?", left);
+				if(right != std::string::npos)
+				{
+					this->url = _buffers.substr(left, right - left);
+				}
+			}
 			else
 				throw std::runtime_error("url not exists");
 		}
@@ -143,17 +146,31 @@ namespace web
 
 		struct Info
 		{
-			HttpType type;
+			std::string type;
 			std::string url;
 			std::vector<UrlParam> params;
 			Callback* callback;
 		};
 
 
-		std::map<std::string, Info> infos;
+		//第一层用url映射，第二层用http GET SET等类型映射
+		std::map<std::string, std::map<std::string, Info>> infos;
+
+		const Info& GetInfo(std::string_view _type, std::string_view _url) const
+		{
+			auto urlIter = this->infos.find(_url.data());
+			if(urlIter == this->infos.end())
+				throw std::runtime_error("can not find callback");
+			                                                           
+			auto typeIter = urlIter->second.find(_type.data());
+			if(typeIter == urlIter->second.end())
+				throw std::runtime_error("can not find callback");
+
+			return typeIter->second;
+		}
 
 	public:
-		void RegisterUrl(HttpType _type, std::string_view _url, std::vector<UrlParam> _params, Callback* _func)
+		void RegisterUrl(std::string_view _type, std::string_view _url, std::vector<UrlParam> _params, Callback* _func)
 		{
 			if(this->infos.find(_url.data()) != this->infos.end())
 			{
@@ -167,17 +184,17 @@ namespace web
 			temp.params = std::move(_params);
 			temp.callback = std::move(_func);
 	
-			this->infos.insert(std::pair<std::string, Info>(temp.url, std::move(temp)));
+			this->infos[_url.data()].insert(std::pair<std::string, Info>(_type, std::move(temp)));
 		}
 
-		const std::vector<UrlParam>& GetUrlParams(std::string_view _url) const
+		const std::vector<UrlParam>& GetUrlParams(std::string_view _type, std::string_view _url) const
 		{
-			return this->infos.at(_url.data()).params;
+			return this->GetInfo(_type, _url).params;
 		}
 
-		const Callback* GetUrlCallback(std::string_view _url) const
+		const Callback* GetUrlCallback(std::string_view _type, std::string_view _url) const
 		{
-			return this->infos.at(_url.data()).callback;
+			return this->GetInfo(_type, _url).callback;
 		}
 	};
 
@@ -279,16 +296,19 @@ namespace web
 			}
 		
 			if(bind(serverSock, reinterpret_cast<sockaddr*>(&_sockAddr), sizeof(_sockAddr)) == -1)
-			{
+			{	
 				std::cout << "bind socket failed!" << std::endl;
+				perror("bind");
 				return;
 			}
 		
 			const int max = 20;
 		
-			listen(serverSock, max);
-		
-			std::cout << "server start listen..." << " -port " << ntohs(_sockAddr.sin_port)  << std::endl;
+			if(listen(serverSock, max))
+			{
+				std::cout << "listen failed!" << std::endl;
+				return;
+			}	
 		
 			epoll_event ev;
 			epoll_event events[max];
@@ -353,12 +373,12 @@ namespace web
 							try
 							{
 								std::cout << "1" << std::endl;
-								HttpResponse response = _httpServer->router->GetUrlCallback(request.GetUrl())();
+								HttpResponse response = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl())();
 								std::cout << "2" << std::endl;	
 								HttpServer::SendHttpResponse(events[i].data.fd, std::move(response));
 								std::cout << "3" << std::endl;
 							}
-							catch (std::out_of_range _ex)
+							catch (std::runtime_error _ex)
 							{
 								try
 								{
@@ -400,16 +420,18 @@ namespace web
 			
 		}
 
-		void Listen(int _port)
+		void Listen(std::string_view _address, int _port)
 		{
 			this->listenSignal = true;
 			sockaddr_in serverAddr = {};
 
 			serverAddr.sin_family = AF_INET;
-			serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+			serverAddr.sin_addr.s_addr = inet_addr(_address.data());
 			serverAddr.sin_port = htons(_port);
 
 			std::thread proc(HttpServer::ListenProc, this, serverAddr);
+
+			std::cout << "server listening... ip:" << _address << " port:" << ntohs(serverAddr.sin_port) << std::endl;
 
 			proc.detach();
 		}
