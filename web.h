@@ -480,4 +480,9 @@ namespace web
 
 		return HttpResponse(stateCode, body.data(), body.size());
 	}
+
+	HttpResponse Json(std::string_view _str)
+	{
+		return HttpResponse(200, _str.data(), _str.size());
+	}
 };

@@ -164,6 +164,13 @@ web::HttpResponse Home()
 	return web::View("home/index.html");
 }
 
+web::HttpResponse TestPost()
+{
+	std::cout << "TestPost触发" << std::endl;
+
+	return web::Json("success！测试中文!成功!");
+}
+
 int main(int _argc, char* _argv[])
 {
 	if(_argc != 3)
@@ -179,6 +186,7 @@ int main(int _argc, char* _argv[])
 	std::unique_ptr<web::Router> test(new web::Router);
 
 	test->RegisterUrl("GET", "/", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} }, &Home);
+	test->RegisterUrl("POST", "/test/post", { {"a", &typeid(int)}, {"b", &typeid(std::string)} }, &TestPost);
 
 	web::HttpServer server(std::move(test));
 
