@@ -294,6 +294,9 @@ namespace web
 			return bytes;
 		}
 
+		using SSL_Ptr = std::unique_ptr<SSL, decltype(&SSL_free)>;
+		using SSL_CTX_Ptr = std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)>;
+
 		static void ListenProc(HttpServer* _httpServer, sockaddr_in _sockAddr)
 		{
 			const int serverSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -322,7 +325,7 @@ namespace web
 			epoll_event ev;
 			epoll_event events[max];
 			const int epfd = epoll_create(max);
-			std::unordered_map<int, SSL*> sslMap;
+			std::unordered_map<int, SSL_Ptr> sslMap;
 		
 			if(epfd == -1)
 			{
@@ -343,7 +346,7 @@ namespace web
 			//https://www.csdn.net/gather_29/NtDagg3sNTAtYmxvZwO0O0OO0O0O.html
 			
 			///支持ssl绑定证书
-			SSL_CTX* ctx = SSL_CTX_new(SSLv23_server_method());
+			SSL_CTX_Ptr ctx(SSL_CTX_new(SSLv23_server_method()), SSL_CTX_free);
 			//SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
 			if(ctx == nullptr)
 			{
@@ -351,8 +354,8 @@ namespace web
 				return;
 			}
 			
-			SSL_CTX_set_options(ctx, SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE | SSL_OP_NO_SSLv2);
-			SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+			SSL_CTX_set_options(ctx.get(), SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE | SSL_OP_NO_SSLv2);
+			SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, NULL);
 			EC_KEY* ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
 			if(ecdh == nullptr)
 			{
@@ -360,7 +363,7 @@ namespace web
 				return;
 			}
 
-			if(SSL_CTX_set_tmp_ecdh(ctx, ecdh) != 1)
+			if(SSL_CTX_set_tmp_ecdh(ctx.get(), ecdh) != 1)
 			{
 				std::cout << "SSL_CTX_set_tmp_ecdh failed!" << std::endl;
 				return;
@@ -371,20 +374,20 @@ namespace web
 			const char* privateKey = "cert.key";
 
 			//配置证书公匙
-			if(SSL_CTX_use_certificate_file(ctx, publicKey, SSL_FILETYPE_PEM) != 1)
+			if(SSL_CTX_use_certificate_file(ctx.get(), publicKey, SSL_FILETYPE_PEM) != 1)
 			{
 				std::cout << "SSL_CTX_use_cretificate_file failed!" << std::endl;
 				return;
 			}
 			//配置证书私钥
-			if(SSL_CTX_use_PrivateKey_file(ctx, privateKey, SSL_FILETYPE_PEM) != 1)
+			if(SSL_CTX_use_PrivateKey_file(ctx.get(), privateKey, SSL_FILETYPE_PEM) != 1)
 			{
 				std::cout << "SSL_CTX_use_PrivateKey_file failed!" << std::endl;
 				return;
 			}
 
 			//验证证书
-			if(SSL_CTX_check_private_key(ctx) != 1)
+			if(SSL_CTX_check_private_key(ctx.get()) != 1)
 			{
 				std::cout << "SSL_CTX_check_private_key failed" << std::endl;
 				return;
@@ -417,19 +420,18 @@ namespace web
 						}
 						
 						//绑定ssl
-						SSL* ssl = SSL_new(ctx);
-						SSL_set_fd(ssl, connfd);
+						SSL_Ptr ssl(SSL_new(ctx.get()), SSL_free);
+						SSL_set_fd(ssl.get(), connfd);
 						//ssl握手
-						if(SSL_accept(ssl) == -1)
+						if(SSL_accept(ssl.get()) == -1)
 						{
 							std::cout << "SSL accept failed!" << std::endl;
 							ERR_print_errors_fp(stderr);
-							SSL_free(ssl);
 							close(connfd);
 							continue;
 						}	
 
-						sslMap.insert(std::pair<int, SSL*>(connfd,ssl));
+						sslMap.insert(std::pair<int, SSL_Ptr>(connfd, std::move(ssl)));
 		
 						ev.data.fd = connfd;
 						ev.events = EPOLLIN;
@@ -443,7 +445,7 @@ namespace web
 
 						try
 						{
-							const HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd));
+							const HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());
 			
 
 							std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
@@ -452,7 +454,7 @@ namespace web
 								std::cout << "1" << std::endl;
 								HttpResponse response = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl())();
 								std::cout << "2" << std::endl;	
-								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd), std::move(response));
+								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 								std::cout << "3" << std::endl;
 							}
 							catch (std::runtime_error _ex)
@@ -462,7 +464,7 @@ namespace web
 									const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
 									HttpResponse response(200, body.data(), body.size());
 	
-									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd), std::move(response));
+									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 								}
 								catch(std::runtime_error _ex)
 								{	
@@ -475,8 +477,7 @@ namespace web
 							std::cout << _ex.what() << std::endl;
 						}
 						
-						SSL_shutdown(sslMap.at(events[i].data.fd));
-						SSL_free(sslMap.at(events[i].data.fd));
+						SSL_shutdown(sslMap.at(events[i].data.fd).get());
 						sslMap.erase(events[i].data.fd);
 						close(events[i].data.fd);
 						epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &events[i]);	
@@ -489,8 +490,6 @@ namespace web
 
 			}
 
-
-			SSL_CTX_free(ctx);		
 			close(serverSock);
 			std::cout << "server close" << std::endl;
 		}
