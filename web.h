@@ -206,6 +206,9 @@ namespace web
 	class HttpServer
 	{
 	private:
+		using SSL_Ptr = std::unique_ptr<SSL, decltype(&SSL_free)>;
+		using SSL_CTX_Ptr = std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)>;
+
 		std::unique_ptr<Router> router;
 
 		bool listenSignal;
@@ -293,9 +296,6 @@ namespace web
 
 			return bytes;
 		}
-
-		using SSL_Ptr = std::unique_ptr<SSL, decltype(&SSL_free)>;
-		using SSL_CTX_Ptr = std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)>;
 
 		static void ListenProc(HttpServer* _httpServer, sockaddr_in _sockAddr)
 		{
