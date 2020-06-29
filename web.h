@@ -5,6 +5,10 @@
 #include <stdexcept>
 #include <memory>
 #include <fstream>
+#include <unordered_map>
+
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 namespace web
 {
@@ -206,7 +210,7 @@ namespace web
 
 		bool listenSignal;
 
-		static HttpRequest GetHttpRequest(int _sockfd)
+		static HttpRequest GetHttpRequest(SSL* _ssl)
 		{
 			bool finish(false);
 			int contentLen(0);
@@ -221,13 +225,17 @@ namespace web
 
 				memset(buffer, 0, sizeof(buffer));
 
-				const int recvLen = recv(_sockfd, buffer, sizeof(buffer) - 1, 0);
+				const int recvLen =  SSL_read(_ssl, buffer, sizeof(buffer));
 
+				//const int recvLen = recv(_sockfd, buffer, sizeof(buffer)  1, 0);
+				
 				std::cout << "字节数:" << recvLen <<  std::endl;
 
 				if(recvLen <= 0)
 				{
 					finish = true;
+					//ERR_print_errors_fp(stderr);
+
 				}
 
 				contentLen += recvLen;
@@ -249,7 +257,7 @@ namespace web
 			return HttpRequest(std::move(content));
 		}
 
-		static void SendHttpResponse(int _sockfd, const HttpResponse& _response)
+		static void SendHttpResponse(SSL* _ssl, const HttpResponse& _response)
 		{
 			std::cout << "响应报文:" << std::endl;
 			//std::cout << _response.GetContent() << std::endl;
@@ -257,7 +265,8 @@ namespace web
 			const size_t contentSize = _response.GetSize();
 			const char* content = _response.GetContent();
 
-			send(_sockfd, content, contentSize, 0);
+			SSL_write(_ssl, content, contentSize);
+			//send(_sockfd, content, contentSize, 0);
 		}
 
 		static std::vector<char> GetRootFile(std::string_view _view)
@@ -313,6 +322,7 @@ namespace web
 			epoll_event ev;
 			epoll_event events[max];
 			const int epfd = epoll_create(max);
+			std::unordered_map<int, SSL*> sslMap;
 		
 			if(epfd == -1)
 			{
@@ -327,7 +337,59 @@ namespace web
 				std::cout << "epoll control failed!" << std::endl;
 				return;
 			}
-		
+			
+			//openssl 资料
+			//https://blog.csdn.net/ck784101777/article/details/103833822
+			//https://www.csdn.net/gather_29/NtDagg3sNTAtYmxvZwO0O0OO0O0O.html
+			
+			///支持ssl绑定证书
+			SSL_CTX* ctx = SSL_CTX_new(SSLv23_server_method());
+			//SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+			if(ctx == nullptr)
+			{
+				std::cout << "ctx is null" << std::endl;
+				return;
+			}
+			
+			SSL_CTX_set_options(ctx, SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE | SSL_OP_NO_SSLv2);
+			SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+			EC_KEY* ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+			if(ecdh == nullptr)
+			{
+				std::cout << "EC_KEY_new_by_curve_name failed!" << std::endl;
+				return;
+			}
+
+			if(SSL_CTX_set_tmp_ecdh(ctx, ecdh) != 1)
+			{
+				std::cout << "SSL_CTX_set_tmp_ecdh failed!" << std::endl;
+				return;
+			}
+			//
+
+			const char* publicKey = "cert.pem";
+			const char* privateKey = "cert.key";
+
+			//配置证书公匙
+			if(SSL_CTX_use_certificate_file(ctx, publicKey, SSL_FILETYPE_PEM) != 1)
+			{
+				std::cout << "SSL_CTX_use_cretificate_file failed!" << std::endl;
+				return;
+			}
+			//配置证书私钥
+			if(SSL_CTX_use_PrivateKey_file(ctx, privateKey, SSL_FILETYPE_PEM) != 1)
+			{
+				std::cout << "SSL_CTX_use_PrivateKey_file failed!" << std::endl;
+				return;
+			}
+
+			//验证证书
+			if(SSL_CTX_check_private_key(ctx) != 1)
+			{
+				std::cout << "SSL_CTX_check_private_key failed" << std::endl;
+				return;
+			}
+
 			while(_httpServer->listenSignal == true)
 			{
 				int nfds = epoll_wait(epfd, events, max, -1);
@@ -353,6 +415,21 @@ namespace web
 							std::cout << "accept failed" << std::endl;
 							return;
 						}
+						
+						//绑定ssl
+						SSL* ssl = SSL_new(ctx);
+						SSL_set_fd(ssl, connfd);
+						//ssl握手
+						if(SSL_accept(ssl) == -1)
+						{
+							std::cout << "SSL accept failed!" << std::endl;
+							ERR_print_errors_fp(stderr);
+							SSL_free(ssl);
+							close(connfd);
+							continue;
+						}	
+
+						sslMap.insert(std::pair<int, SSL*>(connfd,ssl));
 		
 						ev.data.fd = connfd;
 						ev.events = EPOLLIN;
@@ -366,7 +443,7 @@ namespace web
 
 						try
 						{
-							const HttpRequest request = HttpServer::GetHttpRequest(events[i].data.fd);
+							const HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd));
 			
 
 							std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
@@ -375,7 +452,7 @@ namespace web
 								std::cout << "1" << std::endl;
 								HttpResponse response = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl())();
 								std::cout << "2" << std::endl;	
-								HttpServer::SendHttpResponse(events[i].data.fd, std::move(response));
+								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd), std::move(response));
 								std::cout << "3" << std::endl;
 							}
 							catch (std::runtime_error _ex)
@@ -385,7 +462,7 @@ namespace web
 									const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
 									HttpResponse response(200, body.data(), body.size());
 	
-									HttpServer::SendHttpResponse(events[i].data.fd, std::move(response));
+									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd), std::move(response));
 								}
 								catch(std::runtime_error _ex)
 								{	
@@ -397,7 +474,10 @@ namespace web
 						{
 							std::cout << _ex.what() << std::endl;
 						}
-
+						
+						SSL_shutdown(sslMap.at(events[i].data.fd));
+						SSL_free(sslMap.at(events[i].data.fd));
+						sslMap.erase(events[i].data.fd);
 						close(events[i].data.fd);
 						epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &events[i]);	
 					}
@@ -408,16 +488,25 @@ namespace web
 				}
 
 			}
-		
+
+
+			SSL_CTX_free(ctx);		
 			close(serverSock);
 			std::cout << "server close" << std::endl;
+		}
+
+		void InitSSL()
+		{
+			SSL_library_init();//SSL初始化
+			SSL_load_error_strings();//为ssl加载更友好的错误提示
+			OpenSSL_add_all_algorithms();
 		}
 
 	public:
 		HttpServer(std::unique_ptr<Router>&& _router):
 			router(std::move(_router))
 		{
-			
+			this->InitSSL();
 		}
 
 		void Listen(std::string_view _address, int _port)
