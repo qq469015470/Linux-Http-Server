@@ -14,30 +14,36 @@
 
 #include "web.h"
 
-web::HttpResponse Home()
+web::HttpResponse Home(const web::UrlParam& _params)
 {
 	std::cout << "Home函数触发" << std::endl;
 
 	return web::View("home/index.html");
 }
 
-web::HttpResponse TestPost()
+web::HttpResponse TestPost(const web::UrlParam& _params)
 {
 	std::cout << "TestPost触发" << std::endl;
+
+	std::cout << "a:" << _params["a"].ToString() << std::endl;
+	std::cout << "b:" << _params["b"].ToString() << std::endl;
+
+	for(int i = 0; i < _params["c"]["test"].GetArraySize(); i++)
+	{
+		std::cout << "c[test][" << i << "] = " << _params["c"]["test"][i].ToString() << std::endl;
+	}
+	std::cout << "c[val] = " << _params["c"]["val"].ToString() << std::endl;
+	for(int i = 0; i < _params["d"].GetArraySize(); i++)
+	{
+		std::cout << "d[" << i << "] = " << _params["d"][i].ToString() << std::endl;
+	}
+	
 
 	return web::Json("success！测试中文!成功!");
 }
 
 int main(int _argc, char* _argv[])
 {
-	//web::UrlParam temp;
-	//
-	//std::cout << temp[0] << std::endl;
-	//web::UrlParam* asd = temp["123"];
-
-	//return 0;
-
-
 	if(_argc != 3)
 	{
 		std::cout << "only have 2 argument! frist is ipaddress, second is port." << std::endl;

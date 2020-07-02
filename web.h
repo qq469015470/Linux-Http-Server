@@ -13,26 +13,92 @@
 
 namespace web
 {
+	static std::string UrlDecode(std::string_view _urlCode)
+	{
+		std::string result;
+
+		result.reserve(_urlCode.size());
+		for(int i = 0; i < _urlCode.size(); i++)
+		{
+			if(_urlCode[i] == '%')
+			{
+				char hex[3];
+
+				hex[0] = _urlCode[i + 1];
+				hex[1] = _urlCode[i + 2];
+				hex[2] = '\0';
+
+				int buffer;
+				
+				sscanf(hex, "%x", &buffer);
+				result += static_cast<char>(buffer);
+
+				i += 2;
+			}
+			else
+			{
+				result += _urlCode[i];
+			}
+		}	
+
+		return result;
+	}
+
 	class UrlParam
 	{
 	private:
 		std::optional<std::string> val;
+		size_t arrSize;
 		std::unordered_map<std::string, std::unique_ptr<UrlParam>> params;
 
-	public:
-		//std::string operator[](std::string_view _key) const
-		//{
-		//	return this->values.at(_key.data());
-		//}
-
-		UrlParam* operator[](std::string_view _key)
+		inline UrlParam& Find(std::string_view _key)
 		{
-			return this->params[_key.data()].get();
+			std::unique_ptr<UrlParam>& result(this->params[_key.data()]);
+			
+			if(result == nullptr)
+			{
+				result = std::make_unique<UrlParam>();
+			}
+
+			return *result.get();
 		}
 
-		std::string_view ToString()
+	public:
+		UrlParam():
+			arrSize(0)
 		{
-			if(this->val.has_value())
+
+		}
+
+		const UrlParam& operator[](int _index) const
+		{
+			return *this->params.at(std::to_string(_index)).get();
+		}
+
+		UrlParam& operator[](int _index)
+		{
+			return this->Find(std::to_string(_index));
+		}
+
+		const UrlParam& operator[](std::string_view _key) const
+		{
+			return *this->params.at(_key.data()).get();
+		}
+
+		UrlParam& operator[](std::string_view _key)
+		{
+			return this->Find(_key);
+		}
+
+		UrlParam& operator=(std::string_view _value)
+		{
+			this->val = _value;
+			return *this;
+		}
+
+		const std::string& ToString() const
+		{
+			if(!this->val.has_value())
 			{
 				throw std::runtime_error("not have val");
 			}
@@ -40,9 +106,20 @@ namespace web
 			return *this->val;
 		}
 
-		void Add(std::string_view _key, std::string_view _value)
+		//添加数组
+		void PushBack(std::string_view _value)
 		{
-			//this->values.insert(std::pair<std::string, >
+			std::string index(std::to_string(this->arrSize));
+
+			UrlParam& temp(this->Find(std::to_string(this->arrSize)));
+
+			temp[index] = _value;
+			this->arrSize++;
+		}
+
+		size_t GetArraySize() const
+		{
+			return this->arrSize;
 		}
 	};	
 
@@ -79,7 +156,7 @@ namespace web
 		std::string url;
 		std::string version;
 		std::unordered_map<std::string, HttpAttr> attrs;
-		std::unique_ptr<char> body;
+		std::vector<char> body;
 
 		inline std::string::size_type ReadBasic(std::string_view _header)
 		{
@@ -153,6 +230,12 @@ namespace web
 			}
 		}
 
+		inline void ReadBody(const char* _buffer, size_t _size)
+		{
+			this->body.resize(_size);
+			std::copy(_buffer, _buffer + _size, this->body.data());	
+		}
+
 	public:
 		HttpRequest(const char* _buffers)
 		{
@@ -168,6 +251,14 @@ namespace web
 			std::string::size_type left(this->ReadBasic(header));
 			std::string::size_type right(header.size() - left - 1);
 			this->ReadAttr(header.substr(left, right));
+
+			auto iter = this->attrs.find("Content-Length");
+			if(iter != this->attrs.end())
+			{
+				size_t bodyLen = std::stoi(iter->second.GetValue());
+
+				this->ReadBody(pos + 4, bodyLen);
+			}
 		}
 
 		const std::string& GetType() const
@@ -194,9 +285,14 @@ namespace web
 			}
 		}
 
-		char* GetBody()
+		const char* GetBody() const
 		{
-			return this->body.get();
+			return this->body.data();
+		}
+
+		size_t GetBodyLen() const
+		{
+			return this->body.size();
 		}
 	};
 
@@ -251,7 +347,7 @@ namespace web
 	class Router
 	{
 	private:
-		using Callback = HttpResponse();
+		using Callback = HttpResponse(const UrlParam&);
 
 		struct Info
 		{
@@ -383,6 +479,62 @@ namespace web
 
 			SSL_write(_ssl, content, contentSize);
 			//send(_sockfd, content, contentSize, 0);
+		}
+
+		static UrlParam JsonToUrlParam(const char* _body, size_t _len)
+		{
+			std::string json(_body, _len);
+
+			std::string::size_type left(0);
+			std::string::size_type right(0);
+
+			right = json.find("=");
+
+			UrlParam params;
+			while(right != std::string::npos)
+			{
+				std::string key(json.substr(left, right - left));
+
+				//提取[]内的成员
+				std::string::size_type keyLeft(0);
+				std::string::size_type keyRight(key.find("%5B"));
+
+				UrlParam* curParam(&params[key.substr(keyLeft, keyRight)]);
+
+				while(keyRight != std::string::npos)
+				{
+					keyLeft = keyRight + 3;
+					keyRight = key.find("%5D", keyLeft);
+
+					const std::string attr(key.substr(keyLeft, keyRight - keyLeft));
+
+					if(attr != "")
+						curParam = &(*curParam)[attr];
+					else
+					{
+						curParam->PushBack("");
+						curParam = &(*curParam)[curParam->GetArraySize() - 1];
+					}
+
+					keyLeft = keyRight + 3;
+					keyRight = key.find("%5B", keyLeft);
+				}
+			
+
+				left = right + 1;
+				right = json.find("&", left);
+				std::string value(web::UrlDecode(json.substr(left, right - left)));
+
+				*curParam = value;
+
+				if(right == std::string::npos)
+					break;
+
+				left = right + 1;
+				right = json.find("=", left);
+			}
+
+			return params;
 		}
 
 		static std::vector<char> GetRootFile(std::string_view _view)
@@ -588,7 +740,7 @@ namespace web
 
 						try
 						{
-							HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());	
+							HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());
 
 							std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
 							std::cout << "1" << std::endl;
@@ -599,7 +751,9 @@ namespace web
 							
 							if(callback != nullptr)
 							{
-								HttpResponse response = callback();
+								const UrlParam params(HttpServer::JsonToUrlParam(request.GetBody(), request.GetBodyLen()));
+
+								HttpResponse response = callback(params);
 								std::cout << "3" << std::endl;
 								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 								std::cout << "4" << std::endl;
