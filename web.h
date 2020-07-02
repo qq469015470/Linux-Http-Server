@@ -6,44 +6,67 @@
 #include <memory>
 #include <fstream>
 #include <unordered_map>
+#include <signal.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
 namespace web
 {
-	struct UrlParam
+	class UrlParam
 	{
-		std::string name;
-		const std::type_info* type;
+	private:
+		std::optional<std::string> val;
+		std::unordered_map<std::string, std::unique_ptr<UrlParam>> params;
+
+	public:
+		//std::string operator[](std::string_view _key) const
+		//{
+		//	return this->values.at(_key.data());
+		//}
+
+		UrlParam* operator[](std::string_view _key)
+		{
+			return this->params[_key.data()].get();
+		}
+
+		std::string_view ToString()
+		{
+			if(this->val.has_value())
+			{
+				throw std::runtime_error("not have val");
+			}
+
+			return *this->val;
+		}
+
+		void Add(std::string_view _key, std::string_view _value)
+		{
+			//this->values.insert(std::pair<std::string, >
+		}
 	};	
 
 	class HttpAttr
 	{
 	private:
 		std::string key;
-		std::string values;
+		std::string value;
 
 	public:
-		HttpAttr(std::string _key, const std::vector<std::string>& _values):
-			key(std::move(_key))
+		HttpAttr(std::string _key, std::string _value):
+			key(std::move(_key)),
+			value(std::move(_value))
 		{
-			for(const auto& item: _values)
-			{
-				this->values += item + ",";
-			}
-
-			this->values.pop_back();
 		}
 
-		std::string_view GetKey() const
+		const std::string& GetKey() const
 		{
 			return this->key;
 		}
 
-		std::string_view GetValues() const
+		const std::string& GetValue() const
 		{
-			return this->values;	
+			return this->value;	
 		}
 
 	};
@@ -54,44 +77,126 @@ namespace web
 		//请求类型(例:get post)
 		std::string type;
 		std::string url;
+		std::string version;
+		std::unordered_map<std::string, HttpAttr> attrs;
+		std::unique_ptr<char> body;
 
-	public:
-		HttpRequest(std::string_view _buffers)
+		inline std::string::size_type ReadBasic(std::string_view _header)
 		{
 			std::string::size_type left = 0;
-			std::string::size_type right = _buffers.find(" ");
+			std::string::size_type right = _header.find("\r\n");
 
-			if(right != std::string::npos)
-				this->type = _buffers.substr(left,right - left);
-			else
-				throw std::runtime_error("type not exists");
+			if(right == std::string::npos)
+			{
+				throw std::runtime_error("http reqeust not vaild!");
+			}
 
+			std::string_view line(_header.substr(left, right));
+
+			//读取type
+			right = line.find(" ");
+			if(right == std::string::npos)
+			{
+				throw std::runtime_error("could not read type!");
+			}
+			this->type = line.substr(left, right - left);
 			left = right + 1;
-			right = _buffers.find(" ", left);
 
+			//读取url
+			right = line.find(" ", left);
+			if(right == std::string::npos)
+			{
+				throw std::runtime_error("could not read url!");
+			}
+			this->url = line.substr(left, right - left);
+			left = right + 1;
+			//去掉地址?开头的参数
+			right = this->url.find("?", left);
 			if(right != std::string::npos)
 			{
-				this->url = _buffers.substr(left, right - left);
-				
-				//去掉地址?开头的参数
-				right = _buffers.find("?", left);
-				if(right != std::string::npos)
-				{
-					this->url = _buffers.substr(left, right - left);
-				}
+				this->url = line.substr(left, right - left);
 			}
-			else
-				throw std::runtime_error("url not exists");
+	
+
+			//读取http协议版本
+			right = line.size();
+			if(left == right)
+			{
+				throw std::runtime_error("could not read version!");
+			}
+			this->version = line.substr(left, right);
+
+			return right + 2;
 		}
 
-		std::string_view GetType() const
+		void ReadAttr(std::string_view _content)
+		{
+			std::string::size_type left(0);
+			std::string::size_type right(_content.find("\r\n"));
+			while(right != std::string::npos)
+			{
+				std::string_view temp(_content.substr(left, right - left));
+				
+				std::string::size_type pos = temp.find(":");
+				if(pos == std::string::npos)
+				{
+					continue;
+				}
+
+				std::string key(temp.substr(0, pos));
+				std::string value(temp.substr(pos + 2, temp.size() - pos - 1));
+				
+				this->attrs.insert(std::pair<std::string, HttpAttr>(std::move(key), HttpAttr(key, std::move(value))));
+
+				left = right + 2;
+				right = _content.find("\r\n", left);
+			}
+		}
+
+	public:
+		HttpRequest(const char* _buffers)
+		{
+			const char* pos = strstr(_buffers, "\r\n\r\n");		
+			
+			if(pos == nullptr)
+			{
+				throw std::runtime_error("http request not vaild!");
+			}
+			
+			const std::string header(_buffers, pos);
+
+			std::string::size_type left(this->ReadBasic(header));
+			std::string::size_type right(header.size() - left - 1);
+			this->ReadAttr(header.substr(left, right));
+		}
+
+		const std::string& GetType() const
 		{
 			return this->type;
 		}
 
-		std::string_view GetUrl() const
+		const std::string& GetUrl() const
 		{
 			return this->url;
+		}
+
+		const std::string& GetAttrValue(std::string_view _key)
+		{
+			auto iter = this->attrs.find(_key.data());
+			if(iter == this->attrs.end())
+			{
+				this->attrs.insert(std::pair<std::string, HttpAttr>(_key.data(), HttpAttr(_key.data(), "")));
+				return this->attrs.at(_key.data()).GetValue();
+			}
+			else
+			{
+				return iter->second.GetValue();
+			}
+		}
+
+		char* GetBody()
+		{
+			return this->body.get();
 		}
 	};
 
@@ -152,7 +257,6 @@ namespace web
 		{
 			std::string type;
 			std::string url;
-			std::vector<UrlParam> params;
 			Callback* callback;
 		};
 
@@ -160,21 +264,21 @@ namespace web
 		//第一层用url映射，第二层用http GET SET等类型映射
 		std::map<std::string, std::map<std::string, Info>> infos;
 
-		const Info& GetInfo(std::string_view _type, std::string_view _url) const
+		const Info* const GetInfo(std::string_view _type, std::string_view _url) const
 		{
 			auto urlIter = this->infos.find(_url.data());
 			if(urlIter == this->infos.end())
-				throw std::runtime_error("can not find callback");
+				return nullptr; 
 			                                                           
 			auto typeIter = urlIter->second.find(_type.data());
 			if(typeIter == urlIter->second.end())
-				throw std::runtime_error("can not find callback");
+				return nullptr;
 
-			return typeIter->second;
+			return &typeIter->second;
 		}
 
 	public:
-		void RegisterUrl(std::string_view _type, std::string_view _url, std::vector<UrlParam> _params, Callback* _func)
+		void RegisterUrl(std::string_view _type, std::string_view _url, Callback* _func)
 		{
 			if(this->infos.find(_url.data()) != this->infos.end())
 			{
@@ -185,20 +289,19 @@ namespace web
 
 			temp.type = _type;
 			temp.url = std::string(_url.data());
-			temp.params = std::move(_params);
 			temp.callback = std::move(_func);
 	
 			this->infos[_url.data()].insert(std::pair<std::string, Info>(_type, std::move(temp)));
 		}
 
-		const std::vector<UrlParam>& GetUrlParams(std::string_view _type, std::string_view _url) const
-		{
-			return this->GetInfo(_type, _url).params;
-		}
-
 		const Callback* GetUrlCallback(std::string_view _type, std::string_view _url) const
 		{
-			return this->GetInfo(_type, _url).callback;
+			const Info* const info = this->GetInfo(_type, _url);
+			
+		       	if(info == nullptr)
+		 		return nullptr;
+			else
+				return info->callback;			
 		}
 	};
 
@@ -217,7 +320,7 @@ namespace web
 		{
 			bool finish(false);
 			int contentLen(0);
-			std::string content;
+			std::vector<char> content;
 
 			std::cout << "开始接收报文" << std::endl;
 			do
@@ -236,17 +339,27 @@ namespace web
 
 				if(recvLen <= 0)
 				{
-					finish = true;
-					//ERR_print_errors_fp(stderr);
+					//recv超时
+					if(recvLen == -1)
+					{
+						SSL_shutdown(_ssl);
+					}
 
+					std::string temp("recv but return ");
+
+					temp += std::to_string(recvLen);
+
+					throw std::runtime_error(temp.c_str());
+					//finish = true;
+					//ERR_print_errors_fp(stderr);
 				}
 
 				contentLen += recvLen;
 
 				//请求头部接收完毕
-				content += buffer;
+				content.insert(content.end(), buffer, buffer + recvLen);
 
-				if(content.find("\r\n\r\n") != std::string::npos)
+				if(strstr(content.data(), "\r\n\r\n") != nullptr)
 				{
 					finish = true;
 				}
@@ -255,14 +368,14 @@ namespace web
 			while(!finish);
 
 			std::cout << "报文结束" << std::endl;
-			std::cout << content << std::endl;			
+			//std::cout << content.data() << std::endl;			
 
-			return HttpRequest(std::move(content));
+			return HttpRequest(content.data());
 		}
 
 		static void SendHttpResponse(SSL* _ssl, const HttpResponse& _response)
 		{
-			std::cout << "响应报文:" << std::endl;
+			//std::cout << "响应报文:" << std::endl;
 			//std::cout << _response.GetContent() << std::endl;
 
 			const size_t contentSize = _response.GetSize();
@@ -297,6 +410,42 @@ namespace web
 			return bytes;
 		}
 
+		static inline SSL_Ptr HandleAccept(int _sockfd, int _epfd, SSL_CTX* _ctx)
+		{
+			//设置超时时间
+			struct timeval timeout={3,0};//3s
+    			if(setsockopt(_sockfd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == -1)
+				std::cout << "setsoockopt failed!" << std::endl;
+    			if(setsockopt(_sockfd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == -1)
+				std::cout << "setsoockopt failed!" << std::endl;
+			
+			//绑定ssl
+			SSL_Ptr ssl(SSL_new(_ctx), SSL_free);
+			SSL_set_fd(ssl.get(), _sockfd);
+			//ssl握手
+			if(SSL_accept(ssl.get()) == -1)
+			{
+				close(_sockfd);
+				throw std::runtime_error("SSL accept failed!");
+			}	
+
+			epoll_event ev;
+
+			ev.data.fd = _sockfd;
+			ev.events = EPOLLIN;
+			epoll_ctl(_epfd, EPOLL_CTL_ADD, _sockfd, &ev);
+		
+			return ssl;
+		}
+
+		static inline void CloseSocket(int _epfd, SSL* _ssl, epoll_event* _ev)
+		{
+			std::cout << "close socket" << std::endl;
+
+			close(_ev->data.fd);
+			epoll_ctl(_epfd, EPOLL_CTL_DEL, _ev->data.fd, _ev);
+		}
+
 		static void ListenProc(HttpServer* _httpServer, sockaddr_in _sockAddr)
 		{
 			const int serverSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -321,18 +470,17 @@ namespace web
 				std::cout << "listen failed!" << std::endl;
 				return;
 			}	
-		
-			epoll_event ev;
+			
 			epoll_event events[max];
 			const int epfd = epoll_create(max);
-			std::unordered_map<int, SSL_Ptr> sslMap;
 		
 			if(epfd == -1)
 			{
 				std::cout << "create epoll faile!" << std::endl;
 				return;
 			}
-		
+
+			epoll_event ev;	
 			ev.data.fd = serverSock;
 			ev.events = EPOLLIN;
 			if(epoll_ctl(epfd, EPOLL_CTL_ADD, serverSock, &ev) == -1)
@@ -392,6 +540,8 @@ namespace web
 				std::cout << "SSL_CTX_check_private_key failed" << std::endl;
 				return;
 			}
+			
+			std::unordered_map<int, SSL_Ptr> sslMap;
 
 			while(_httpServer->listenSignal == true)
 			{
@@ -403,6 +553,7 @@ namespace web
 				}
 		
 				std::cout << "nfds:" << nfds  << std::endl;
+				std::cout << "sslMap size:" << sslMap.size() << std::endl;
 		
 				for(int i = 0; i < nfds; i++)
 				{
@@ -415,29 +566,21 @@ namespace web
 						const int connfd = accept(serverSock, reinterpret_cast<sockaddr*>(&clntAddr), &size);
 						if(connfd == -1)
 						{
-							std::cout << "accept failed" << std::endl;
-							return;
-						}
-						
-						//绑定ssl
-						SSL_Ptr ssl(SSL_new(ctx.get()), SSL_free);
-						SSL_set_fd(ssl.get(), connfd);
-						//ssl握手
-						if(SSL_accept(ssl.get()) == -1)
-						{
-							std::cout << "SSL accept failed!" << std::endl;
-							ERR_print_errors_fp(stderr);
-							close(connfd);
+							std::cout << "accept failed!" << std::endl;
 							continue;
-						}	
+						}
 
-						sslMap.insert(std::pair<int, SSL_Ptr>(connfd, std::move(ssl)));
-		
-						ev.data.fd = connfd;
-						ev.events = EPOLLIN;
-						epoll_ctl(epfd, EPOLL_CTL_ADD, connfd, &ev);
 						std::cout << "accept client_addr" << inet_ntoa(clntAddr.sin_addr) << std::endl;
-		
+
+						try
+						{
+							SSL_Ptr temp(HttpServer::HandleAccept(connfd, epfd, ctx.get()));
+							sslMap.insert(std::pair<int, SSL_Ptr>(connfd, std::move(temp)));
+						}
+						catch(std::runtime_error _ex)
+						{
+							std::cout << _ex.what() << std::endl;
+						}
 					}
 					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
@@ -445,42 +588,48 @@ namespace web
 
 						try
 						{
-							const HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());
-			
+							HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());	
 
 							std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
-							try
+							std::cout << "1" << std::endl;
+
+							auto callback = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl());
+
+							std::cout << "2" << std::endl;
+							
+							if(callback != nullptr)
 							{
-								std::cout << "1" << std::endl;
-								HttpResponse response = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl())();
-								std::cout << "2" << std::endl;	
-								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
+								HttpResponse response = callback();
 								std::cout << "3" << std::endl;
+								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
+								std::cout << "4" << std::endl;
 							}
-							catch (std::runtime_error _ex)
+							else
 							{
-								try
-								{
-									const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
-									HttpResponse response(200, body.data(), body.size());
-	
-									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
-								}
-								catch(std::runtime_error _ex)
-								{	
-									std::cout << _ex.what() << std::endl;
-								}
+								std::cout << "5" << std::endl;
+								const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
+								std::cout << "6" << std::endl;
+								HttpResponse response(200, body.data(), body.size());
+								                             
+      								std::cout << "7" << std::endl;								
+								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
+								std::cout << "8" << std::endl;
 							}
+							
+							std::cout << "connect:" << request.GetAttrValue("Connection").c_str() << std::endl;
+							if(request.GetAttrValue("Connection") != "keep-alive")
+							{
+								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+								sslMap.erase(events[i].data.fd);
+							}
+
 						}
 						catch(std::runtime_error _ex)
 						{
 							std::cout << _ex.what() << std::endl;
+							HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+							sslMap.erase(events[i].data.fd);
 						}
-						
-						SSL_shutdown(sslMap.at(events[i].data.fd).get());
-						sslMap.erase(events[i].data.fd);
-						close(events[i].data.fd);
-						epoll_ctl(epfd, EPOLL_CTL_DEL, events[i].data.fd, &events[i]);	
 					}
 					else
 					{
@@ -501,11 +650,35 @@ namespace web
 			OpenSSL_add_all_algorithms();
 		}
 
+		static void sigpipe_handler(int _val)
+		{
+			std::cout<< "sigpipe_handler:" << _val << std::endl;
+		}
+
 	public:
 		HttpServer(std::unique_ptr<Router>&& _router):
 			router(std::move(_router))
 		{
 			this->InitSSL();
+
+			struct sigaction sh;
+   			struct sigaction osh;
+
+			//当SSL_shutdown、SSL_write 等对远端进行操作但对方已经断开连接时会触发异常信号、导致程序崩溃、
+			//以下代码似乎可以忽略这个信号
+			//https://stackoverflow.com/questions/32040760/c-openssl-sigpipe-when-writing-in-closed-pipe?r=SearchResults
+   			sh.sa_handler = &HttpServer::sigpipe_handler; //Can set to SIG_IGN
+   			// Restart interrupted system calls
+   			sh.sa_flags = SA_RESTART;
+
+   			// Block every signal during the handler
+   			sigemptyset(&sh.sa_mask);
+
+   			if (sigaction(SIGPIPE, &sh, &osh) < 0)
+   			{
+				std::cout << "sigcation failed!" << std::endl;
+   			}
+			//
 		}
 
 		void Listen(std::string_view _address, int _port)

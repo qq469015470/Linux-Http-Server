@@ -30,6 +30,14 @@ web::HttpResponse TestPost()
 
 int main(int _argc, char* _argv[])
 {
+	//web::UrlParam temp;
+	//
+	//std::cout << temp[0] << std::endl;
+	//web::UrlParam* asd = temp["123"];
+
+	//return 0;
+
+
 	if(_argc != 3)
 	{
 		std::cout << "only have 2 argument! frist is ipaddress, second is port." << std::endl;
@@ -42,8 +50,8 @@ int main(int _argc, char* _argv[])
 
 	std::unique_ptr<web::Router> test(new web::Router);
 
-	test->RegisterUrl("GET", "/", { {"id", &typeid(int)}, {"test", &typeid(std::string)}, {"test2", &typeid(std::vector<std::string>)} }, &Home);
-	test->RegisterUrl("POST", "/test/post", { {"a", &typeid(int)}, {"b", &typeid(std::string)} }, &TestPost);
+	test->RegisterUrl("GET", "/", &Home);
+	test->RegisterUrl("POST", "/test/post", &TestPost);
 
 	web::HttpServer server(std::move(test));
 
