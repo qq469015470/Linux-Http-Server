@@ -17,7 +17,31 @@
 			//setInterval(function() { PostTest(); }, 10);
 		});
 
+		var i = 0;
+
 		function PostTest() {
+			var ws = new WebSocket("wss://" + window.location.host + "/chat");
+
+			//ws.binaryType = "arraybuffer"
+
+			ws.onopen = function(evt) { 
+				console.log("Connection open ..."); 
+				ws.send("Hello WebSockets!" + i++);
+				//ws.send(1);
+			};
+
+			ws.onclose = function(event) {
+				var code = event.code;
+				var reason = event.reason;
+				var wasClean = event.wasClean;
+				// handle close event
+
+				console.log("close");
+			};
+
+
+			return;
+
 			var arr = [1,2,3,4,5];
 			var arr2 = ['1', '2'];
 			var obj = {

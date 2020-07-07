@@ -58,6 +58,7 @@ int main(int _argc, char* _argv[])
 
 	test->RegisterUrl("GET", "/", &Home);
 	test->RegisterUrl("POST", "/test/post", &TestPost);
+	test->RegisterWebSocket("/chat");
 
 	web::HttpServer server(std::move(test));
 

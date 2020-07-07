@@ -6,9 +6,12 @@
 #include <memory>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <signal.h>
+#include <bitset>
 
 #include <openssl/ssl.h>
+#include <openssl/sha.h>
 #include <openssl/err.h>
 
 namespace web
@@ -146,6 +149,18 @@ namespace web
 			return this->value;	
 		}
 
+	};
+
+	struct WebsocketInfo
+	{
+		bool fin;
+		bool rsv1;
+		bool rsv2;
+		bool rsv3;
+		unsigned short int opcode;
+		bool mask;
+		char maskingKey[4];
+		std::vector<char> payload;
 	};
 
 	class HttpRequest
@@ -306,25 +321,38 @@ namespace web
 		{
 			switch (_code)
 			{
+				case 101:
+					return std::string("Switching Protocols");	
+					break;
 				case 200:
 					return std::string("OK");
 					break;
 				case 404:
 					return std::string("NOT FOUND");
+					break;
 				default:
 					return std::string("NONE SPEC");
+					break;
 			}
 		}
 
 	public:
-		HttpResponse(int _stateCode, const char* _body, unsigned long _bodyLen):
+		HttpResponse(int _stateCode,const std::vector<HttpAttr>& _httpAttrs, const char* _body, unsigned long _bodyLen):
 			content({'\0'}),
 			size(0)
 		{
 			std::string header;
 			
 			header = "HTTP/1.1 " + std::to_string(_stateCode) + " " + HttpResponse::GetSpec(_stateCode) + "\r\n";
-			header += "Content-Length: " + std::to_string(_bodyLen) + "\r\n";
+
+			if(_bodyLen > 0)
+				header += "Content-Length: " + std::to_string(_bodyLen) + "\r\n";
+
+			for(const auto& item: _httpAttrs)
+			{
+				header += item.GetKey() + ": " + item.GetValue() + "\r\n";
+			}
+
 			header += "\r\n";
 
 			this->content.resize(header.size() + _bodyLen);
@@ -347,23 +375,29 @@ namespace web
 	class Router
 	{
 	private:
-		using Callback = HttpResponse(const UrlParam&);
+		using UrlCallback = HttpResponse(const UrlParam&);
 
-		struct Info
+		struct UrlInfo
 		{
 			std::string type;
 			std::string url;
-			Callback* callback;
+			UrlCallback* callback;
+		};
+
+		struct WebsocketInfo
+		{
+			std::string url;
 		};
 
 
 		//第一层用url映射，第二层用http GET SET等类型映射
-		std::map<std::string, std::map<std::string, Info>> infos;
+		std::unordered_map<std::string, std::unordered_map<std::string, UrlInfo>> urlInfos;
+		std::unordered_map<std::string, WebsocketInfo> websocketInfos;
 
-		const Info* const GetInfo(std::string_view _type, std::string_view _url) const
+		const UrlInfo* const GetUrlInfo(std::string_view _type, std::string_view _url) const
 		{
-			auto urlIter = this->infos.find(_url.data());
-			if(urlIter == this->infos.end())
+			auto urlIter = this->urlInfos.find(_url.data());
+			if(urlIter == this->urlInfos.end())
 				return nullptr; 
 			                                                           
 			auto typeIter = urlIter->second.find(_type.data());
@@ -374,25 +408,38 @@ namespace web
 		}
 
 	public:
-		void RegisterUrl(std::string_view _type, std::string_view _url, Callback* _func)
+		void RegisterUrl(std::string_view _type, std::string_view _url, UrlCallback* _func)
 		{
-			if(this->infos.find(_url.data()) != this->infos.end())
+			if(this->urlInfos.find(_url.data()) != this->urlInfos.end())
 			{
 				throw std::logic_error("url has been register");
 			}
 
-			Info temp = {};
+			UrlInfo temp = {};
 
 			temp.type = _type;
 			temp.url = std::string(_url.data());
 			temp.callback = std::move(_func);
 	
-			this->infos[_url.data()].insert(std::pair<std::string, Info>(_type, std::move(temp)));
+			this->urlInfos[_url.data()].insert(std::pair<std::string, UrlInfo>(_type, std::move(temp)));
 		}
 
-		const Callback* GetUrlCallback(std::string_view _type, std::string_view _url) const
+		void RegisterWebSocket(std::string_view _url)
 		{
-			const Info* const info = this->GetInfo(_type, _url);
+			if(this->websocketInfos.find(_url.data()) != this->websocketInfos.end())
+			{
+				throw std::logic_error("url has been register");
+			}
+
+			WebsocketInfo temp = {};
+
+			temp.url = _url;
+			this->websocketInfos.insert(std::pair<std::string, WebsocketInfo>(_url, std::move(temp)));
+		}
+
+		const UrlCallback* GetUrlCallback(std::string_view _type, std::string_view _url) const
+		{
+			const UrlInfo* const info = this->GetUrlInfo(_type, _url);
 			
 		       	if(info == nullptr)
 		 		return nullptr;
@@ -412,16 +459,123 @@ namespace web
 
 		bool listenSignal;
 
+		//返回websocket的Sec-Websocket-Accept码
+		//https://www.zhihu.com/question/67784701
+		//在WebSocket通信协议中服务端为了证实已经接收了握手，它需要把两部分的数据合并成一个响应。
+		//一部分信息来自客户端握手的Sec-WebSocket-Keyt头字段：Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==。
+		//对于这个字段，服务端必须得到这个值并与"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"组合成一个字符串，
+		//经过SHA-1掩码，base64编码后在服务端的握手中返回。
+		static std::string GetWebsocketCode(std::string_view _code)
+		{
+			const char* magicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+			//获取sha1编码
+			SHA_CTX shaCtx;
+			SHA1_Init(&shaCtx);
+
+			const std::string code = std::string(_code) + magicString;
+			SHA1_Update(&shaCtx, code.c_str(), code.size());
+			
+			unsigned char sha1Code[20];
+			SHA1_Final(sha1Code, &shaCtx);
+
+			//base64编码
+			BIO *bmem = NULL;
+			BIO *b64 = NULL;
+			BUF_MEM *bptr;
+			b64 = BIO_new(BIO_f_base64());
+			BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+			bmem = BIO_new(BIO_s_mem());
+			b64 = BIO_push(b64, bmem);
+			BIO_write(b64, sha1Code, sizeof(sha1Code));
+			BIO_flush(b64);
+			BIO_get_mem_ptr(b64, &bptr);
+			BIO_set_close(b64, BIO_NOCLOSE);
+			
+			std::string result;
+
+			result.resize(bptr->length);
+			memcpy(result.data(), bptr->data, bptr->length);
+			BIO_free_all(b64);
+			
+			return result;
+		}
+
+		//解析websocket通讯的内容
+		//参考:
+		//https://blog.csdn.net/zhusongziye/article/details/80316127
+		//https://blog.csdn.net/hnzwx888/article/details/84021754
+		static WebsocketInfo GetWebsocketMessage(SSL* _ssl)
+		{
+			char buffer[1024];
+
+			memset(buffer, 0, sizeof(buffer));
+			const int recvLen = SSL_read(_ssl, buffer, sizeof(buffer));
+
+			if(recvLen <= 0)
+			{
+				if(recvLen == -1)
+				{
+					SSL_shutdown(_ssl);
+				}
+
+				std::string temp("websocket recv but return ");
+
+				temp += std::to_string(recvLen);
+				throw std::runtime_error(temp.c_str());
+			}
+
+			WebsocketInfo info;
+			std::bitset<16> bits(static_cast<unsigned int>(buffer[0]) | static_cast<unsigned int>(buffer[1]) << 8);
+			info.fin = bits[0];
+			info.rsv1 = bits[1];
+			info.rsv2 = bits[2];
+			info.rsv3 = bits[3];
+			info.opcode = static_cast<unsigned char>(buffer[0]) >> 4;
+			info.mask = bits[8];
+			unsigned short length(static_cast<unsigned char>(buffer[1]) & 127);
+			int readOffset(2);
+
+			if(length == 126)
+			{
+				length += *reinterpret_cast<unsigned int*>(&buffer[2]);
+				readOffset += 2;
+			}
+			else if(length == 127)
+			{
+				length += *reinterpret_cast<unsigned long long*>(&buffer[4]);
+				readOffset += 4;
+			}
+
+			info.payload.resize(length);
+			memset(info.payload.data(), 0, info.payload.size());
+
+			if(info.mask == true)
+			{
+				std::copy(buffer + readOffset, buffer + readOffset + 4, info.maskingKey);
+				readOffset += 4;
+				for(int i = 0; i < length; i++)
+				{
+					const int j = i % 4;
+					info.payload[i] = buffer[readOffset + i] ^ info.maskingKey[j];
+				}
+			}
+			else
+			{
+				std::copy(buffer + readOffset, buffer + readOffset + length, info.payload.data());
+			}
+
+			return info;
+		}
+
 		static HttpRequest GetHttpRequest(SSL* _ssl)
 		{
 			bool finish(false);
 			int contentLen(0);
 			std::vector<char> content;
 
-			std::cout << "开始接收报文" << std::endl;
 			do
 			{
-				std::cout << "循环" << std::endl;
 
 				char buffer[1024];
 
@@ -431,7 +585,6 @@ namespace web
 
 				//const int recvLen = recv(_sockfd, buffer, sizeof(buffer)  1, 0);
 				
-				std::cout << "字节数:" << recvLen <<  std::endl;
 
 				if(recvLen <= 0)
 				{
@@ -449,6 +602,7 @@ namespace web
 					//finish = true;
 					//ERR_print_errors_fp(stderr);
 				}
+				std::cout << buffer << std::endl;
 
 				contentLen += recvLen;
 
@@ -463,16 +617,11 @@ namespace web
 			}
 			while(!finish);
 
-			std::cout << "报文结束" << std::endl;
-			//std::cout << content.data() << std::endl;			
-
 			return HttpRequest(content.data());
 		}
 
 		static void SendHttpResponse(SSL* _ssl, const HttpResponse& _response)
 		{
-			//std::cout << "响应报文:" << std::endl;
-			//std::cout << _response.GetContent() << std::endl;
 
 			const size_t contentSize = _response.GetSize();
 			const char* content = _response.GetContent();
@@ -592,8 +741,6 @@ namespace web
 
 		static inline void CloseSocket(int _epfd, SSL* _ssl, epoll_event* _ev)
 		{
-			std::cout << "close socket" << std::endl;
-
 			close(_ev->data.fd);
 			epoll_ctl(_epfd, EPOLL_CTL_DEL, _ev->data.fd, _ev);
 		}
@@ -694,6 +841,7 @@ namespace web
 			}
 			
 			std::unordered_map<int, SSL_Ptr> sslMap;
+			std::unordered_set<int> websocketMap;
 
 			while(_httpServer->listenSignal == true)
 			{
@@ -703,9 +851,6 @@ namespace web
 				{
 					std::cout << "epoll wait failed!" << std::endl;
 				}
-		
-				std::cout << "nfds:" << nfds  << std::endl;
-				std::cout << "sslMap size:" << sslMap.size() << std::endl;
 		
 				for(int i = 0; i < nfds; i++)
 				{
@@ -737,52 +882,91 @@ namespace web
 					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
 					{
-
-						try
+						if(websocketMap.find(events[i].data.fd) != websocketMap.end())
 						{
-							HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());
-
-							std::cout << "类型:\"" << request.GetType() << "\" 地址:\"" << request.GetUrl() << "\"" << std::endl;
-							std::cout << "1" << std::endl;
-
-							auto callback = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl());
-
-							std::cout << "2" << std::endl;
-							
-							if(callback != nullptr)
+							try
 							{
-								const UrlParam params(HttpServer::JsonToUrlParam(request.GetBody(), request.GetBodyLen()));
+								const WebsocketInfo info = HttpServer::GetWebsocketMessage(sslMap.at(events[i].data.fd).get());
 
-								HttpResponse response = callback(params);
-								std::cout << "3" << std::endl;
-								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
-								std::cout << "4" << std::endl;
+								if(info.opcode == 8)
+								{
+									HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+									sslMap.erase(events[i].data.fd);
+									websocketMap.erase(events[i].data.fd);	
+								}
+
+								std::vector<char> temp(info.payload.size() + 1, '\0');
+								
+								std::copy(info.payload.begin(), info.payload.end(), temp.data());
+								std::cout << "websocket:\"" << temp.data() << "\"" << std::endl;
 							}
-							else
+							catch (std::runtime_error _ex)
 							{
-								std::cout << "5" << std::endl;
-								const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
-								std::cout << "6" << std::endl;
-								HttpResponse response(200, body.data(), body.size());
-								                             
-      								std::cout << "7" << std::endl;								
-								HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
-								std::cout << "8" << std::endl;
+								std::cout << _ex.what() << std::endl;
+								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+								sslMap.erase(events[i].data.fd);
+								websocketMap.erase(events[i].data.fd);	
 							}
-							
-							std::cout << "connect:" << request.GetAttrValue("Connection").c_str() << std::endl;
-							if(request.GetAttrValue("Connection") != "keep-alive")
+						}
+						else
+						{
+							try
 							{
+								HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());
+
+								//检测是否是websocket
+								if(request.GetAttrValue("Upgrade") == "websocket")
+								{
+									const std::string secWebsocketKey = request.GetAttrValue("Sec-WebSocket-Key");
+									const std::string secWebsocketAccept = HttpServer::GetWebsocketCode(secWebsocketKey);
+
+									const std::vector<HttpAttr> httpAttrs =
+									{
+										HttpAttr("Upgrade", "websocket"),
+										HttpAttr("Connection", "Upgrade"),
+										HttpAttr("Sec-WebSocket-Accept", secWebsocketAccept),
+									};
+
+
+									HttpResponse response(101, httpAttrs, nullptr, 0);
+
+									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
+									std::cout << "回复websocket完毕" << std::endl;
+									websocketMap.insert(events[i].data.fd);
+								}
+								else
+								{
+									auto callback = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl());
+
+									if(callback != nullptr)
+									{
+										const UrlParam params(HttpServer::JsonToUrlParam(request.GetBody(), request.GetBodyLen()));
+
+										HttpResponse response = callback(params);
+										HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
+									}
+									else
+									{
+										const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
+										HttpResponse response(200, {}, body.data(), body.size());
+										                             
+										HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
+									}
+									
+									if(request.GetAttrValue("Connection") != "keep-alive")
+									{
+										HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+										sslMap.erase(events[i].data.fd);
+									}
+								}
+
+							}
+							catch(std::runtime_error _ex)
+							{
+								std::cout << _ex.what() << std::endl;
 								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
 								sslMap.erase(events[i].data.fd);
 							}
-
-						}
-						catch(std::runtime_error _ex)
-						{
-							std::cout << _ex.what() << std::endl;
-							HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
-							sslMap.erase(events[i].data.fd);
 						}
 					}
 					else
@@ -869,8 +1053,6 @@ namespace web
 
 		std::ifstream file(path);
 
-		std::cout << "return view \"" << path << "\"" << std::endl;
-
 		int stateCode(200);
 		std::vector<char> body;
 
@@ -893,11 +1075,11 @@ namespace web
 
 		file.close();
 
-		return HttpResponse(stateCode, body.data(), body.size());
+		return HttpResponse(stateCode, {}, body.data(), body.size());
 	}
 
 	HttpResponse Json(std::string_view _str)
 	{
-		return HttpResponse(200, _str.data(), _str.size());
+		return HttpResponse(200, {}, _str.data(), _str.size());
 	}
 };
