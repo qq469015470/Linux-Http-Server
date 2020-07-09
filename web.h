@@ -878,6 +878,7 @@ namespace web
 						catch(std::runtime_error _ex)
 						{
 							std::cout << _ex.what() << std::endl;
+							ERR_print_errors_fp(stderr);
 						}
 					}
 					//是客户端则返回信息
