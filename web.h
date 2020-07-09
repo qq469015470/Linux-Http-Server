@@ -151,7 +151,7 @@ namespace web
 
 	};
 
-	struct WebsocketInfo
+	struct WebsocketData
 	{
 		bool fin;
 		bool rsv1;
@@ -505,7 +505,7 @@ namespace web
 		//参考:
 		//https://blog.csdn.net/zhusongziye/article/details/80316127
 		//https://blog.csdn.net/hnzwx888/article/details/84021754
-		static WebsocketInfo GetWebsocketMessage(SSL* _ssl)
+		static WebsocketData GetWebsocketMessage(SSL* _ssl)
 		{
 			char buffer[1024];
 
@@ -525,25 +525,26 @@ namespace web
 				throw std::runtime_error(temp.c_str());
 			}
 
-			WebsocketInfo info;
-			std::bitset<16> bits(static_cast<unsigned int>(buffer[0]) | static_cast<unsigned int>(buffer[1]) << 8);
+			WebsocketData info;
+			std::bitset<16> bits(buffer[0] & 255 | (buffer[1] << 8));
 			info.fin = bits[0];
 			info.rsv1 = bits[1];
 			info.rsv2 = bits[2];
 			info.rsv3 = bits[3];
-			info.opcode = static_cast<unsigned char>(buffer[0]) >> 4;
-			info.mask = bits[8];
-			unsigned short length(static_cast<unsigned char>(buffer[1]) & 127);
+			info.opcode = buffer[0] >> 4;
+			info.mask = bits[15];
+			unsigned short length(buffer[1] & 127);
+
 			int readOffset(2);
 
 			if(length == 126)
 			{
-				length += *reinterpret_cast<unsigned int*>(&buffer[2]);
+				length = *reinterpret_cast<unsigned int*>(&buffer[2]);
 				readOffset += 2;
 			}
 			else if(length == 127)
 			{
-				length += *reinterpret_cast<unsigned long long*>(&buffer[4]);
+				length = *reinterpret_cast<unsigned long long*>(&buffer[4]);
 				readOffset += 4;
 			}
 
@@ -886,8 +887,9 @@ namespace web
 						{
 							try
 							{
-								const WebsocketInfo info = HttpServer::GetWebsocketMessage(sslMap.at(events[i].data.fd).get());
+								const WebsocketData info = HttpServer::GetWebsocketMessage(sslMap.at(events[i].data.fd).get());
 
+								//opcode 为8则表示断开连接
 								if(info.opcode == 8)
 								{
 									HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
