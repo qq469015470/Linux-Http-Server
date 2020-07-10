@@ -377,6 +377,14 @@ namespace web
 	private:
 		using UrlCallback = HttpResponse(const UrlParam&);
 
+		class IUrlCallbackObj
+		{
+		public:
+			virtual ~IUrlCallbackObj() = default;
+
+			virtual HttpResponse Callback(const UrlParam& _params) = 0;
+		};
+
 		struct UrlInfo
 		{
 			std::string type;
@@ -389,10 +397,11 @@ namespace web
 			std::string url;
 		};
 
-
 		//第一层用url映射，第二层用http GET SET等类型映射
 		std::unordered_map<std::string, std::unordered_map<std::string, UrlInfo>> urlInfos;
 		std::unordered_map<std::string, WebsocketInfo> websocketInfos;
+
+		std::unordered_map<std::string, std::unordered_map<std::string, std::unique_ptr<IUrlCallbackObj>>> objCallbackInfos;
 
 		const UrlInfo* const GetUrlInfo(std::string_view _type, std::string_view _url) const
 		{
@@ -406,6 +415,41 @@ namespace web
 
 			return &typeIter->second;
 		}
+
+		IUrlCallbackObj* const GetUrlCallbackObj(std::string_view _type, std::string_view _url) const
+		{
+			auto urlIter = this->objCallbackInfos.find(_url.data());
+			if(urlIter == this->objCallbackInfos.end())
+				return nullptr;
+
+			auto typeIter = urlIter->second.find(_type.data());
+			if(typeIter == urlIter->second.end())
+				return nullptr;
+
+			return typeIter->second.get();
+		}
+
+
+		template<typename _TYPE, typename _METHOD>
+		class UrlCallbackObj: virtual public IUrlCallbackObj
+		{
+		private:
+			_TYPE* ptr;
+			_METHOD func;
+
+		public:
+			UrlCallbackObj(_TYPE* _ptr, _METHOD _func):
+				ptr(_ptr),
+				func(_func)
+			{
+
+			}
+			
+			virtual HttpResponse Callback(const UrlParam& _params) override
+			{
+				return ((this->ptr)->*(this->func))(_params);
+			}
+		};
 
 	public:
 		void RegisterUrl(std::string_view _type, std::string_view _url, UrlCallback* _func)
@@ -424,6 +468,16 @@ namespace web
 			this->urlInfos[_url.data()].insert(std::pair<std::string, UrlInfo>(_type, std::move(temp)));
 		}
 
+		template<typename _TYPE>
+		void RegisterUrl(std::string_view _type, std::string_view _url, HttpResponse(_TYPE::*_func)(const UrlParam&), _TYPE* _ptr)
+		{
+			//成员指针调用成员函数指针语法
+			//(_ptr->*_func)(UrlParam());
+			
+			std::unique_ptr<IUrlCallbackObj> temp(std::make_unique<UrlCallbackObj<_TYPE, decltype(_func)>>(_ptr, _func));
+			this->objCallbackInfos[_url.data()].insert(std::pair<std::string, std::unique_ptr<IUrlCallbackObj>>(_type.data(), std::move(temp)));
+		}
+
 		void RegisterWebSocket(std::string_view _url)
 		{
 			if(this->websocketInfos.find(_url.data()) != this->websocketInfos.end())
@@ -437,14 +491,32 @@ namespace web
 			this->websocketInfos.insert(std::pair<std::string, WebsocketInfo>(_url, std::move(temp)));
 		}
 
-		const UrlCallback* GetUrlCallback(std::string_view _type, std::string_view _url) const
+		bool FindUrlCallback(std::string_view _type, std::string_view _url) const
 		{
-			const UrlInfo* const info = this->GetUrlInfo(_type, _url);
-			
-		       	if(info == nullptr)
-		 		return nullptr;
-			else
-				return info->callback;			
+			if(this->GetUrlInfo(_type, _url) != nullptr)
+				return true;
+
+			if(this->GetUrlCallbackObj(_type, _url) != nullptr)
+				return true;	
+
+			return false;
+		}
+
+		HttpResponse RunCallback(std::string_view _type, std::string_view _url, const UrlParam& _params)
+		{
+			auto urlInfo = this->GetUrlInfo(_type, _url);
+			if(urlInfo != nullptr)
+			{
+				return (urlInfo->callback)(_params);			
+			}
+
+			auto urlCallbackObj = this->GetUrlCallbackObj(_type.data(), _url.data());
+			if(urlCallbackObj != nullptr)
+			{
+				return urlCallbackObj->Callback(_params);
+			}
+
+			throw std::runtime_error("callback not found");
 		}
 	};
 
@@ -939,13 +1011,11 @@ namespace web
 								}
 								else
 								{
-									auto callback = _httpServer->router->GetUrlCallback(request.GetType(), request.GetUrl());
-
-									if(callback != nullptr)
+									if(_httpServer->router->FindUrlCallback(request.GetType(), request.GetUrl()))
 									{
 										const UrlParam params(HttpServer::JsonToUrlParam(request.GetBody(), request.GetBodyLen()));
 
-										HttpResponse response = callback(params);
+										HttpResponse response = _httpServer->router->RunCallback(request.GetType(), request.GetUrl(), params);
 										HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 									}
 									else
