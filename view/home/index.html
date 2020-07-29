@@ -30,6 +30,11 @@
 				//ws.send(1);
 			};
 
+			ws.onmessage = function(event) {
+				console.log(event);
+				console.log(event.data);
+			}
+
 			ws.onclose = function(event) {
 				var code = event.code;
 				var reason = event.reason;

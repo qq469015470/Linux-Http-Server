@@ -53,6 +53,12 @@ public:
 	}
 };
 
+void TestWebSocket(const char* _data, size_t _len)
+{
+	std::string content(_data, _len);
+	std::cout << "TestWebsocket called! data:" << content << " size:" << content.size() << std::endl;
+}
+
 int main(int _argc, char* _argv[])
 {
 	if(_argc != 3)
@@ -72,7 +78,7 @@ int main(int _argc, char* _argv[])
 	test->RegisterUrl("GET", "/", &TestCall::Home, &temp);
 	test->RegisterUrl("POST", "/test/post", &TestCall::TestPost, &temp);
 	test->RegisterUrl("GET", "/Test", &TestCall::Test, &temp);
-	test->RegisterWebSocket("/chat");
+	test->RegisterWebSocket("/chat", &TestWebSocket);
 
 	web::HttpServer server(std::move(test));
 

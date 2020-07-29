@@ -376,6 +376,7 @@ namespace web
 	{
 	private:
 		using UrlCallback = HttpResponse(const UrlParam&);
+		using WebsocketCallback = void(const char* _data, size_t _size);
 
 		class IUrlCallbackObj
 		{
@@ -395,6 +396,7 @@ namespace web
 		struct WebsocketInfo
 		{
 			std::string url;
+			WebsocketCallback* callback;
 		};
 
 		//第一层用url映射，第二层用http GET SET等类型映射
@@ -478,7 +480,7 @@ namespace web
 			this->objCallbackInfos[_url.data()].insert(std::pair<std::string, std::unique_ptr<IUrlCallbackObj>>(_type.data(), std::move(temp)));
 		}
 
-		void RegisterWebSocket(std::string_view _url)
+		void RegisterWebSocket(std::string_view _url, WebsocketCallback* _func)
 		{
 			if(this->websocketInfos.find(_url.data()) != this->websocketInfos.end())
 			{
@@ -488,7 +490,8 @@ namespace web
 			WebsocketInfo temp = {};
 
 			temp.url = _url;
-			this->websocketInfos.insert(std::pair<std::string, WebsocketInfo>(_url, std::move(temp)));
+			temp.callback = _func;
+			this->websocketInfos.insert(std::pair<std::string, WebsocketInfo>(_url, std::move(temp)));	
 		}
 
 		bool FindUrlCallback(std::string_view _type, std::string_view _url) const
@@ -518,6 +521,21 @@ namespace web
 
 			throw std::runtime_error("callback not found");
 		}
+		
+		bool FindWebsocketCallback(std::string_view _url) const
+		{
+			auto iter = this->websocketInfos.find(_url.data());
+			if(iter != this->websocketInfos.end())
+				return true;
+			else
+				return false;
+		}
+	
+		void RunWebsocketCallback(std::string_view _url, const char* _data, size_t _len)
+		{
+			auto info = this->websocketInfos.at(_url.data());
+			(info.callback)(_data, _len);		
+		}	
 	};
 
 
@@ -603,7 +621,7 @@ namespace web
 			info.rsv1 = bits[1];
 			info.rsv2 = bits[2];
 			info.rsv3 = bits[3];
-			info.opcode = buffer[0] >> 4;
+			info.opcode = buffer[0] & 15;
 			info.mask = bits[15];
 			unsigned short length(buffer[1] & 127);
 
@@ -914,7 +932,7 @@ namespace web
 			}
 			
 			std::unordered_map<int, SSL_Ptr> sslMap;
-			std::unordered_set<int> websocketMap;
+			std::unordered_map<int, std::string> websocketMap;
 
 			while(_httpServer->listenSignal == true)
 			{
@@ -967,20 +985,29 @@ namespace web
 								{
 									HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
 									sslMap.erase(events[i].data.fd);
-									websocketMap.erase(events[i].data.fd);	
+									websocketMap.erase(events[i].data.fd);
 								}
+								else
+								{
+									std::vector<char> temp;
 
-								std::vector<char> temp(info.payload.size() + 1, '\0');
-								
-								std::copy(info.payload.begin(), info.payload.end(), temp.data());
-								std::cout << "websocket:\"" << temp.data() << "\"" << std::endl;
+									temp.push_back(129);
+									temp.push_back(3);
+									temp.push_back('a');
+									temp.push_back('b');
+									temp.push_back('c');
+
+									SSL_write(sslMap.at(events[i].data.fd).get(), temp.data(), temp.size());
+									
+									_httpServer->router->RunWebsocketCallback(websocketMap.at(events[i].data.fd), info.payload.data(), info.payload.size());
+								}
 							}
 							catch (std::runtime_error _ex)
 							{
 								std::cout << _ex.what() << std::endl;
 								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
 								sslMap.erase(events[i].data.fd);
-								websocketMap.erase(events[i].data.fd);	
+								websocketMap.erase(events[i].data.fd);
 							}
 						}
 						else
@@ -990,8 +1017,9 @@ namespace web
 								HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());
 
 								//检测是否是websocket
-								if(request.GetAttrValue("Upgrade") == "websocket")
-								{
+								if(request.GetAttrValue("Upgrade") == "websocket"
+									&& _httpServer->router->FindWebsocketCallback(request.GetUrl()))
+								{	
 									const std::string secWebsocketKey = request.GetAttrValue("Sec-WebSocket-Key");
 									const std::string secWebsocketAccept = HttpServer::GetWebsocketCode(secWebsocketKey);
 
@@ -1007,7 +1035,7 @@ namespace web
 
 									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 									std::cout << "回复websocket完毕" << std::endl;
-									websocketMap.insert(events[i].data.fd);
+									websocketMap.insert(std::pair<int, std::string>(static_cast<int>(events[i].data.fd), request.GetUrl()));
 								}
 								else
 								{
