@@ -30,10 +30,11 @@
 				//ws.send(1);
 			};
 
+			setTimeout(function () {
+				ws.send('second send');
+			}, 1000);
+
 			ws.onmessage = function(event) {
-				console.log(event);
-				console.log(event.data);
-				console.log(typeof(event.data));
 				if(event.data instanceof Object) {
 					event.data.arrayBuffer().then(buffer => {
 						const view = new DataView(buffer);
@@ -49,6 +50,9 @@
 
 						console.log(name);
 					});
+				}
+				else {
+					console.log(event.data);
 				}
 			}
 

@@ -53,10 +53,36 @@ public:
 	}
 };
 
-void TestWebSocket(const char* _data, size_t _len)
+void WebsocketOnConnect(web::Websocket* _websocket)
 {
+	std::cout << "OnConnect id:" << _websocket->GetId() << std::endl;
+}
+
+void TestWebSocket(web::Websocket* _websocket, const char* _data, size_t _len)
+{
+	std::cout << "weboscketId" << _websocket->GetId() << std::endl;
 	std::string content(_data, _len);
 	std::cout << "TestWebsocket called! data:" << content << " size:" << content.size() << std::endl;
+
+	struct User
+	{
+		int id;
+		char name[10];
+	};
+
+	User user;
+	const char* testuser = "tes tuser";
+
+	user.id = 12345;
+	std::copy(testuser, testuser + strlen(testuser), user.name);
+
+	_websocket->SendText("hello websocket!");
+	_websocket->SendByte(reinterpret_cast<char*>(&user), sizeof(user));
+}
+
+void WebsocketDisconnect(web::Websocket* _websocket)
+{
+	std::cout << "disconnect id:" << _websocket->GetId() << std::endl;
 }
 
 int main(int _argc, char* _argv[])
@@ -78,7 +104,7 @@ int main(int _argc, char* _argv[])
 	test->RegisterUrl("GET", "/", &TestCall::Home, &temp);
 	test->RegisterUrl("POST", "/test/post", &TestCall::TestPost, &temp);
 	test->RegisterUrl("GET", "/Test", &TestCall::Test, &temp);
-	test->RegisterWebSocket("/chat", &TestWebSocket);
+	test->RegisterWebSocket("/chat", &WebsocketOnConnect, &TestWebSocket, &WebsocketDisconnect);
 
 	web::HttpServer server(std::move(test));
 

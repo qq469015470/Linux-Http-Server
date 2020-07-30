@@ -372,11 +372,91 @@ namespace web
 		}
 	};
 
+	class Websocket
+	{
+	private:
+		SSL* ssl;
+
+		//将数据变为websocket协议格式
+		std::vector<char> PackMessage(const char* _data, size_t _len, bool _isbuffer)
+		{
+			std::vector<char> temp;
+
+			if(_isbuffer)
+			{
+				temp.push_back(130);
+			}
+			else
+			{
+				temp.push_back(129);
+			}
+
+			//断言仅用一个数据帧就可以发送完数据
+			assert(_len < 127 + std::numeric_limits<uint64_t>::max());
+			
+			if(_len > 126 + std::numeric_limits<uint8_t>::max())
+			{
+				temp.push_back(127);
+				uint64_t len(_len - 127);
+
+				temp.insert(temp.end(), reinterpret_cast<char*>(&len), reinterpret_cast<char*>(&len) + sizeof(len));
+			}
+			else if(_len >= 126)
+			{
+				temp.push_back(126);
+				uint8_t len(_len - 126);
+                                                                                                                                     
+                                temp.insert(temp.end(), reinterpret_cast<char*>(&len), reinterpret_cast<char*>(&len) + sizeof(len));
+			}
+			else
+			{
+				temp.push_back(_len);
+			}
+
+			temp.insert(temp.end(), _data, _data + _len);
+
+			return temp;
+		}
+
+	public:
+		Websocket(SSL* _ssl):
+			ssl(_ssl)
+		{
+
+		}
+
+		long GetId() const
+		{
+			return reinterpret_cast<long>(this->ssl);
+		}
+
+		void SendText(std::string_view _text)
+		{
+			std::vector<char> data(this->PackMessage(_text.data(), _text.size(), false));
+			
+			SSL_write(this->ssl, data.data(), data.size());
+		}
+
+		void SendByte(char* _data, size_t _len)
+		{
+			std::vector<char> data(this->PackMessage(_data, _len, true));
+
+			SSL_write(this->ssl, data.data(), data.size());
+		}
+		
+		void Close()
+		{
+
+		}
+	};
+
 	class Router
 	{
 	private:
 		using UrlCallback = HttpResponse(const UrlParam&);
-		using WebsocketCallback = void(const char* _data, size_t _size);
+		using WebsocketConnectCallback = void(Websocket* _id);
+		using WebsocketOnMessageCallback = void(Websocket* _id, const char* _data, size_t _size);
+		using WebsocketDisconnectCallback = void(Websocket* _id);
 
 		class IUrlCallbackObj
 		{
@@ -396,7 +476,9 @@ namespace web
 		struct WebsocketInfo
 		{
 			std::string url;
-			WebsocketCallback* callback;
+			WebsocketConnectCallback* connectCallback;
+			WebsocketOnMessageCallback* onMessageCallback;
+			WebsocketDisconnectCallback* disconnectCallback;
 		};
 
 		//第一层用url映射，第二层用http GET SET等类型映射
@@ -480,7 +562,7 @@ namespace web
 			this->objCallbackInfos[_url.data()].insert(std::pair<std::string, std::unique_ptr<IUrlCallbackObj>>(_type.data(), std::move(temp)));
 		}
 
-		void RegisterWebSocket(std::string_view _url, WebsocketCallback* _func)
+		void RegisterWebSocket(std::string_view _url,WebsocketConnectCallback* _connect, WebsocketOnMessageCallback* _onMessage, WebsocketDisconnectCallback* _disconnect)
 		{
 			if(this->websocketInfos.find(_url.data()) != this->websocketInfos.end())
 			{
@@ -490,7 +572,9 @@ namespace web
 			WebsocketInfo temp = {};
 
 			temp.url = _url;
-			temp.callback = _func;
+			temp.connectCallback = _connect;
+			temp.onMessageCallback = _onMessage;
+			temp.disconnectCallback = _disconnect;
 			this->websocketInfos.insert(std::pair<std::string, WebsocketInfo>(_url, std::move(temp)));	
 		}
 
@@ -530,12 +614,27 @@ namespace web
 			else
 				return false;
 		}
-	
-		void RunWebsocketCallback(std::string_view _url, const char* _data, size_t _len)
+
+		void RunWebsocketConnectCallback(std::string_view _url, SSL* _ssl)
 		{
+			Websocket temp(_ssl);
 			auto info = this->websocketInfos.at(_url.data());
-			(info.callback)(_data, _len);		
-		}	
+			(info.connectCallback)(&temp);	
+		}
+
+		void RunWebsocketOnMessageCallback(std::string_view _url, SSL* _ssl, const char* _data, size_t _len)
+		{
+			Websocket temp(_ssl);
+			auto info = this->websocketInfos.at(_url.data());
+			(info.onMessageCallback)(&temp, _data, _len);
+		}
+
+		void RunWebsocketDisconnectCallback(std::string_view _url, SSL* _ssl)
+		{
+			Websocket temp(_ssl);
+			auto info = this->websocketInfos.at(_url.data());
+			(info.disconnectCallback)(&temp);
+		}
 	};
 
 	class HttpServer
@@ -982,48 +1081,19 @@ namespace web
 								//opcode 为8则表示断开连接
 								if(info.opcode == 8)
 								{
+									_httpServer->router->RunWebsocketDisconnectCallback(websocketMap.at(events[i].data.fd), sslMap.at(events[i].data.fd).get());
 									HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
 									sslMap.erase(events[i].data.fd);
 									websocketMap.erase(events[i].data.fd);
 								}
 								else
 								{
-									std::vector<char> temp;
-
-									temp.push_back(129);
-									temp.push_back(3);
-									temp.push_back('a');
-									temp.push_back('b');
-									temp.push_back('c');
-
-									struct User
-									{
-										int id;
-										char name[10];
-									};
-									
-									SSL_write(sslMap.at(events[i].data.fd).get(), temp.data(), temp.size());
-	
-									User a2;
-
-									a2.id = 12345;
-									const char* testUser = "tes tUser";
-
-									std::copy(testUser, testUser + 9, a2.name);
-									temp.clear();
-									temp.push_back(130);
-									temp.push_back(sizeof(a2));
-									
-									temp.insert(temp.end(), reinterpret_cast<char*>(&a2), reinterpret_cast<char*>(&a2) + sizeof(User));
-
-									std::cout << "tempsize:" << temp.size() << std::endl;
-									SSL_write(sslMap.at(events[i].data.fd).get(), temp.data(), temp.size());
-									
-									_httpServer->router->RunWebsocketCallback(websocketMap.at(events[i].data.fd), info.payload.data(), info.payload.size());
+									_httpServer->router->RunWebsocketOnMessageCallback(websocketMap.at(events[i].data.fd), sslMap.at(events[i].data.fd).get(), info.payload.data(), info.payload.size());
 								}
 							}
 							catch (std::runtime_error _ex)
 							{
+								_httpServer->router->RunWebsocketDisconnectCallback(websocketMap.at(events[i].data.fd), sslMap.at(events[i].data.fd).get());
 								std::cout << _ex.what() << std::endl;
 								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
 								sslMap.erase(events[i].data.fd);
@@ -1056,6 +1126,7 @@ namespace web
 									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 									std::cout << "回复websocket完毕" << std::endl;
 									websocketMap.insert(std::pair<int, std::string>(static_cast<int>(events[i].data.fd), request.GetUrl()));
+									_httpServer->router->RunWebsocketConnectCallback(request.GetUrl(), sslMap.at(events[i].data.fd).get());
 								}
 								else
 								{
