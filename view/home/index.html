@@ -33,6 +33,23 @@
 			ws.onmessage = function(event) {
 				console.log(event);
 				console.log(event.data);
+				console.log(typeof(event.data));
+				if(event.data instanceof Object) {
+					event.data.arrayBuffer().then(buffer => {
+						const view = new DataView(buffer);
+						console.log(view.getInt32(0, true));
+						console.log(buffer);
+						var name = '';
+						for(var i = 0; i < 10; i++) {
+							if(view.getInt8(4 + i) == 0)
+								break;
+
+							name += String.fromCharCode(view.getInt8(4 + i, true));
+						}
+
+						console.log(name);
+					});
+				}
 			}
 
 			ws.onclose = function(event) {

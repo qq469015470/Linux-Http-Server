@@ -538,7 +538,6 @@ namespace web
 		}	
 	};
 
-
 	class HttpServer
 	{
 	private:
@@ -997,6 +996,27 @@ namespace web
 									temp.push_back('b');
 									temp.push_back('c');
 
+									struct User
+									{
+										int id;
+										char name[10];
+									};
+									
+									SSL_write(sslMap.at(events[i].data.fd).get(), temp.data(), temp.size());
+	
+									User a2;
+
+									a2.id = 12345;
+									const char* testUser = "tes tUser";
+
+									std::copy(testUser, testUser + 9, a2.name);
+									temp.clear();
+									temp.push_back(130);
+									temp.push_back(sizeof(a2));
+									
+									temp.insert(temp.end(), reinterpret_cast<char*>(&a2), reinterpret_cast<char*>(&a2) + sizeof(User));
+
+									std::cout << "tempsize:" << temp.size() << std::endl;
 									SSL_write(sslMap.at(events[i].data.fd).get(), temp.data(), temp.size());
 									
 									_httpServer->router->RunWebsocketCallback(websocketMap.at(events[i].data.fd), info.payload.data(), info.payload.size());
