@@ -1,3 +1,4 @@
+#include <cstring>
 #include <string>
 #include <iostream>
 #include <map>
@@ -9,6 +10,15 @@
 #include <unordered_set>
 #include <signal.h>
 #include <bitset>
+#include <vector>
+#include <cassert>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <thread>
 
 #include <openssl/ssl.h>
 #include <openssl/sha.h>
