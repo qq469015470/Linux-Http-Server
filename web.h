@@ -443,11 +443,6 @@ namespace web
 
 			SSL_write(this->ssl, data.data(), data.size());
 		}
-		
-		void Close()
-		{
-
-		}
 	};
 
 	class Router
@@ -464,6 +459,78 @@ namespace web
 			virtual ~IUrlCallbackObj() = default;
 
 			virtual HttpResponse Callback(const UrlParam& _params) = 0;
+		};
+
+		template<typename _TYPE, typename _METHOD>
+		class UrlCallbackObj: virtual public IUrlCallbackObj
+		{
+		private:
+			_TYPE* ptr;
+			_METHOD func;
+		                                                                        
+		public:
+			UrlCallbackObj(_TYPE* _ptr, _METHOD _func):
+				ptr(_ptr),
+				func(_func)
+			{
+		                                                                        
+			}
+			
+			virtual HttpResponse Callback(const UrlParam& _params) override
+			{
+				return ((this->ptr)->*(this->func))(_params);
+			}
+		};
+
+		class IWebsocketeCallbackObj
+		{
+		public:
+			virtual ~IWebsocketeCallbackObj() = default;
+
+			virtual void ConnectCallback(Websocket* _websocket) = 0;
+			virtual void OnMessageCallback(Websocket* _websocket, const char* _data, size_t _len) = 0;
+			virtual void DisconnectCallback(Websocket* _websocket) = 0;
+		};
+
+		template<typename _CONNTYPE, typename _CONNMETHOD, typename _MSGTYPE, typename _MSGMETHOD, typename _DISCONNTYPE, typename _DISCONNMETHOD>
+		class WebsocketCallbackObj: virtual public IWebsocketeCallbackObj
+		{
+		private:
+			_CONNTYPE* connPtr;
+			_MSGTYPE* msgPtr;
+			_DISCONNTYPE* disConnPtr;
+
+			_CONNMETHOD connFunc;
+			_MSGMETHOD msgFunc;
+			_DISCONNMETHOD disConnFunc;
+
+		public:
+			WebsocketCallbackObj(_CONNTYPE* _connPtr, _CONNMETHOD _connFunc, _MSGTYPE* _msgPtr, _MSGMETHOD _msgFunc, _DISCONNTYPE* _disConnPtr, _DISCONNMETHOD _disConnFunc):
+				connPtr(_connPtr),
+				connFunc(_connFunc),
+				msgPtr(_msgPtr),
+				msgFunc(_msgFunc),
+				disConnPtr(_disConnPtr),
+				disConnFunc(_disConnFunc)
+			{
+
+			}	
+
+			virtual void ConnectCallback(Websocket* _websocket) override
+			{
+				((this->connPtr)->*this->connFunc)(_websocket);
+			}
+
+			virtual void OnMessageCallback(Websocket* _websocket, const char* _data, size_t _len)
+			{
+				((this->msgPtr)->*this->msgFunc)(_websocket, _data, _len);
+			}
+
+			virtual void DisconnectCallback(Websocket* _websocket) override
+			{
+				((this->disConnPtr)->*this->disConnFunc)(_websocket);
+			}
+
 		};
 
 		struct UrlInfo
@@ -485,9 +552,10 @@ namespace web
 		std::unordered_map<std::string, std::unordered_map<std::string, UrlInfo>> urlInfos;
 		std::unordered_map<std::string, WebsocketInfo> websocketInfos;
 
-		std::unordered_map<std::string, std::unordered_map<std::string, std::unique_ptr<IUrlCallbackObj>>> objCallbackInfos;
+		std::unordered_map<std::string, std::unordered_map<std::string, std::unique_ptr<IUrlCallbackObj>>> urlObjInfos;
+		std::unordered_map<std::string, std::unique_ptr<IWebsocketeCallbackObj>> websocketObjInfos;
 
-		const UrlInfo* const GetUrlInfo(std::string_view _type, std::string_view _url) const
+		const UrlInfo* GetUrlInfo(std::string_view _type, std::string_view _url) const
 		{
 			auto urlIter = this->urlInfos.find(_url.data());
 			if(urlIter == this->urlInfos.end())
@@ -500,10 +568,10 @@ namespace web
 			return &typeIter->second;
 		}
 
-		IUrlCallbackObj* const GetUrlCallbackObj(std::string_view _type, std::string_view _url) const
+		IUrlCallbackObj* GetUrlCallbackObj(std::string_view _type, std::string_view _url) const
 		{
-			auto urlIter = this->objCallbackInfos.find(_url.data());
-			if(urlIter == this->objCallbackInfos.end())
+			auto urlIter = this->urlObjInfos.find(_url.data());
+			if(urlIter == this->urlObjInfos.end())
 				return nullptr;
 
 			auto typeIter = urlIter->second.find(_type.data());
@@ -513,27 +581,23 @@ namespace web
 			return typeIter->second.get();
 		}
 
-
-		template<typename _TYPE, typename _METHOD>
-		class UrlCallbackObj: virtual public IUrlCallbackObj
+		const WebsocketInfo* GetWebsocketInfo(std::string_view _url) const
 		{
-		private:
-			_TYPE* ptr;
-			_METHOD func;
+			auto iter = this->websocketInfos.find(_url.data());
+			if(iter == this->websocketInfos.end())
+				return nullptr;
 
-		public:
-			UrlCallbackObj(_TYPE* _ptr, _METHOD _func):
-				ptr(_ptr),
-				func(_func)
-			{
+			return &iter->second;	
+		}
 
-			}
-			
-			virtual HttpResponse Callback(const UrlParam& _params) override
-			{
-				return ((this->ptr)->*(this->func))(_params);
-			}
-		};
+		IWebsocketeCallbackObj* GetWebsocketObj(std::string_view _url) const
+		{
+			auto iter = this->websocketObjInfos.find(_url.data());
+			if(iter == this->websocketObjInfos.end())
+				return nullptr;
+
+			return iter->second.get();
+		}
 
 	public:
 		void RegisterUrl(std::string_view _type, std::string_view _url, UrlCallback* _func)
@@ -559,10 +623,10 @@ namespace web
 			//(_ptr->*_func)(UrlParam());
 			
 			std::unique_ptr<IUrlCallbackObj> temp(std::make_unique<UrlCallbackObj<_TYPE, decltype(_func)>>(_ptr, _func));
-			this->objCallbackInfos[_url.data()].insert(std::pair<std::string, std::unique_ptr<IUrlCallbackObj>>(_type.data(), std::move(temp)));
+			this->urlObjInfos[_url.data()].insert(std::pair<std::string, std::unique_ptr<IUrlCallbackObj>>(_type.data(), std::move(temp)));
 		}
 
-		void RegisterWebSocket(std::string_view _url,WebsocketConnectCallback* _connect, WebsocketOnMessageCallback* _onMessage, WebsocketDisconnectCallback* _disconnect)
+		void RegisterWebsocket(std::string_view _url, WebsocketConnectCallback* _connect, WebsocketOnMessageCallback* _onMessage, WebsocketDisconnectCallback* _disconnect)
 		{
 			if(this->websocketInfos.find(_url.data()) != this->websocketInfos.end())
 			{
@@ -577,6 +641,23 @@ namespace web
 			temp.disconnectCallback = _disconnect;
 			this->websocketInfos.insert(std::pair<std::string, WebsocketInfo>(_url, std::move(temp)));	
 		}
+
+		template<typename _CONNTYPE, typename _MSGTYPE, typename _DISCONNTYPE>
+		void RegisterWebsocket(std::string_view _url, void(_CONNTYPE::*_connect)(Websocket*), void(_MSGTYPE::*_onMessage)(Websocket*, const char*, size_t), void(_DISCONNTYPE::*_disconnect)(Websocket*), _CONNTYPE* const _connPtr, _MSGTYPE* const _msgPtr, _DISCONNTYPE* const _disConnPtr)
+		{
+			if(this->GetWebsocketInfo(_url) != nullptr
+			|| this->GetWebsocketObj(_url) != nullptr)
+				throw std::logic_error("websocket url had been register");
+
+			std::unique_ptr<IWebsocketeCallbackObj> temp(new WebsocketCallbackObj<_CONNTYPE, decltype(_connect), _MSGTYPE, decltype(_onMessage), _DISCONNTYPE, decltype(_disconnect)>(_connPtr, _connect, _msgPtr, _onMessage, _disConnPtr, _disconnect));
+			this->websocketObjInfos.insert(std::pair<std::string, std::unique_ptr<IWebsocketeCallbackObj>>(_url.data(), std::move(temp)));
+		}
+
+		template<typename _TYPE>
+                void RegisterWebsocket(std::string_view _url, void(_TYPE::*_connect)(Websocket*), void(_TYPE::*_onMessage)(Websocket*, const char*, size_t), void(_TYPE::*_disconnect)(Websocket*), _TYPE* const _ptr)
+                {
+			this->RegisterWebsocket(_url, _connect, _onMessage, _disconnect, _ptr, _ptr, _ptr);
+                }
 
 		bool FindUrlCallback(std::string_view _type, std::string_view _url) const
 		{
@@ -608,32 +689,62 @@ namespace web
 		
 		bool FindWebsocketCallback(std::string_view _url) const
 		{
-			auto iter = this->websocketInfos.find(_url.data());
-			if(iter != this->websocketInfos.end())
+			if(this->GetWebsocketInfo(_url) != nullptr 
+			|| this->GetWebsocketObj(_url) != nullptr)
 				return true;
 			else
 				return false;
 		}
 
-		void RunWebsocketConnectCallback(std::string_view _url, SSL* _ssl)
+		void RunWebsocketConnectCallback(std::string_view _url, Websocket* const _websocket) 
 		{
-			Websocket temp(_ssl);
-			auto info = this->websocketInfos.at(_url.data());
-			(info.connectCallback)(&temp);	
+			auto info = this->GetWebsocketInfo(_url);
+                	if(info != nullptr)
+                	{
+                		return info->connectCallback(_websocket);
+                	}
+                	                                                                   
+                	auto objInfo = this->GetWebsocketObj(_url);
+                	if(objInfo != nullptr)
+                	{
+                		return objInfo->ConnectCallback(_websocket);
+                	}
+
+			throw std::logic_error("websocket url not exists");
 		}
 
-		void RunWebsocketOnMessageCallback(std::string_view _url, SSL* _ssl, const char* _data, size_t _len)
+		void RunWebsocketOnMessageCallback(std::string_view _url, Websocket* const _websocket, const char* _data, size_t _len)
 		{
-			Websocket temp(_ssl);
-			auto info = this->websocketInfos.at(_url.data());
-			(info.onMessageCallback)(&temp, _data, _len);
+			auto info = this->GetWebsocketInfo(_url);
+			if(info != nullptr)
+			{
+				return info->onMessageCallback(_websocket, _data, _len);
+			}
+
+			auto objInfo = this->GetWebsocketObj(_url);
+			if(objInfo != nullptr)
+			{
+				return objInfo->OnMessageCallback(_websocket, _data, _len);
+			}
+
+			throw std::logic_error("websocket url not exists");
 		}
 
-		void RunWebsocketDisconnectCallback(std::string_view _url, SSL* _ssl)
+		void RunWebsocketDisconnectCallback(std::string_view _url, Websocket* const _websocket)
 		{
-			Websocket temp(_ssl);
-			auto info = this->websocketInfos.at(_url.data());
-			(info.disconnectCallback)(&temp);
+			auto info = this->GetWebsocketInfo(_url);
+			if(info != nullptr)
+			{
+				return info->disconnectCallback(_websocket);
+			}
+			                                                                   
+			auto objInfo = this->GetWebsocketObj(_url);
+			if(objInfo != nullptr)
+			{
+				return objInfo->DisconnectCallback(_websocket);
+			}
+
+			throw std::logic_error("websocket url not exists");
 		}
 	};
 
@@ -1030,7 +1141,8 @@ namespace web
 			}
 			
 			std::unordered_map<int, SSL_Ptr> sslMap;
-			std::unordered_map<int, std::string> websocketMap;
+			std::unordered_map<int, std::unique_ptr<Websocket>> websocketMap;
+			std::unordered_map<int, std::string> websocketUrlMap;
 
 			while(_httpServer->listenSignal == true)
 			{
@@ -1072,7 +1184,7 @@ namespace web
 					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
 					{
-						if(websocketMap.find(events[i].data.fd) != websocketMap.end())
+						if(websocketUrlMap.find(events[i].data.fd) != websocketUrlMap.end())
 						{
 							try
 							{
@@ -1081,22 +1193,24 @@ namespace web
 								//opcode 为8则表示断开连接
 								if(info.opcode == 8)
 								{
-									_httpServer->router->RunWebsocketDisconnectCallback(websocketMap.at(events[i].data.fd), sslMap.at(events[i].data.fd).get());
+									_httpServer->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get());
 									HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
 									sslMap.erase(events[i].data.fd);
+									websocketUrlMap.erase(events[i].data.fd);
 									websocketMap.erase(events[i].data.fd);
 								}
 								else
 								{
-									_httpServer->router->RunWebsocketOnMessageCallback(websocketMap.at(events[i].data.fd), sslMap.at(events[i].data.fd).get(), info.payload.data(), info.payload.size());
+									_httpServer->router->RunWebsocketOnMessageCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get(), info.payload.data(), info.payload.size());
 								}
 							}
 							catch (std::runtime_error _ex)
 							{
-								_httpServer->router->RunWebsocketDisconnectCallback(websocketMap.at(events[i].data.fd), sslMap.at(events[i].data.fd).get());
+								_httpServer->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get());
 								std::cout << _ex.what() << std::endl;
 								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
 								sslMap.erase(events[i].data.fd);
+								websocketUrlMap.erase(events[i].data.fd);
 								websocketMap.erase(events[i].data.fd);
 							}
 						}
@@ -1125,8 +1239,12 @@ namespace web
 
 									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 									std::cout << "回复websocket完毕" << std::endl;
-									websocketMap.insert(std::pair<int, std::string>(static_cast<int>(events[i].data.fd), request.GetUrl()));
-									_httpServer->router->RunWebsocketConnectCallback(request.GetUrl(), sslMap.at(events[i].data.fd).get());
+									websocketUrlMap.insert(std::pair<int, std::string>(static_cast<int>(events[i].data.fd), request.GetUrl()));
+									
+									std::unique_ptr<Websocket> temp(new Websocket(sslMap.at(events[i].data.fd).get()));
+
+									websocketMap.insert(std::pair<int, std::unique_ptr<Websocket>>(static_cast<int>(events[i].data.fd), std::move(temp)));
+									_httpServer->router->RunWebsocketConnectCallback(request.GetUrl(), websocketMap.at(events[i].data.fd).get());
 								}
 								else
 								{

@@ -85,6 +85,26 @@ void WebsocketDisconnect(web::Websocket* _websocket)
 	std::cout << "disconnect id:" << _websocket->GetId() << std::endl;
 }
 
+class Chat
+{
+public:
+	void OnConnect(web::Websocket* _websocket)
+	{
+		std::cout << "Chat Connect! " << std::endl;	
+	}
+	
+	void OnMessage(web::Websocket* _websocket, const char* _data, size_t _len)
+	{
+		std::cout << "Chat OnMessage:" << std::string(_data, _len) << std::endl;
+		_websocket->SendText("server recv");
+	}
+
+	void OnDisconnect(web::Websocket* _websocket)
+	{
+		std::cout << "Chat Disconnect!" << std::endl;
+	}
+};
+
 int main(int _argc, char* _argv[])
 {
 	if(_argc != 3)
@@ -100,11 +120,13 @@ int main(int _argc, char* _argv[])
 	std::unique_ptr<web::Router> test(new web::Router);
 
 	static TestCall temp;
+	static Chat chat;
 
 	test->RegisterUrl("GET", "/", &TestCall::Home, &temp);
 	test->RegisterUrl("POST", "/test/post", &TestCall::TestPost, &temp);
 	test->RegisterUrl("GET", "/Test", &TestCall::Test, &temp);
-	test->RegisterWebSocket("/chat", &WebsocketOnConnect, &TestWebSocket, &WebsocketDisconnect);
+	test->RegisterWebsocket("/chat", &WebsocketOnConnect, &TestWebSocket, &WebsocketDisconnect);
+	test->RegisterWebsocket("/asd", &Chat::OnConnect, &Chat::OnMessage, &Chat::OnDisconnect, &chat);
 
 	web::HttpServer server(std::move(test));
 
