@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cstring>
 #include <string>
 #include <iostream>
@@ -1265,7 +1267,7 @@ namespace web
 										HttpResponse response = _httpServer->router->RunCallback(request.GetType(), request.GetUrl(), params);
 										HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 									}
-									else
+									else if(request.GetType() == "GET")
 									{
 										const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
 										HttpResponse response(200, {}, body.data(), body.size());
