@@ -1321,7 +1321,7 @@ namespace web
 								HttpRequest request = HttpServer::GetHttpRequest(sslMap.at(events[i].data.fd).get());
 
 								//检测是否是websocket
-								if(request.GetHeader().GetUpgrade() == "websocket"
+								if(std::string(request.GetHeader().GetUpgrade()) == "websocket"
 									&& _httpServer->router->FindWebsocketCallback(request.GetUrl()))
 								{	
 									const std::string secWebsocketKey = request.GetHeader().GetSecWebSocketKey();
