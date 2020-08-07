@@ -718,7 +718,7 @@ namespace web
 		}
 
 		template<typename _TYPE>
-		void RegisterUrl(std::string_view _type, std::string_view _url, HttpResponse(_TYPE::*_func)(const UrlParam&), _TYPE* _ptr)
+		void RegisterUrl(std::string_view _type, std::string_view _url, HttpResponse(_TYPE::*_func)(const UrlParam&, const HttpHeader&), _TYPE* _ptr)
 		{
 			//成员指针调用成员函数指针语法
 			//(_ptr->*_func)(UrlParam());
