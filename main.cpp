@@ -1,16 +1,4 @@
-#include <iostream>
-#include <assert.h>
-#include <sys/socket.h>
-#include <sys/epoll.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdexcept>
-#include <unistd.h>
-#include <string.h>
-#include <thread>
-#include <chrono>
-#include <vector>
-#include <memory>
+#include <netdb.h>
 
 #include "web.h"
 
@@ -107,6 +95,25 @@ public:
 
 int main(int _argc, char* _argv[])
 {
+	//Test Client
+	web::HttpClient client;
+
+	const hostent* const host = gethostbyname("www.baidu.com");
+	if(!host)
+	{
+		throw std::runtime_error("get host error");
+	}
+
+	const std::string url = inet_ntoa(*(struct in_addr*)host->h_addr_list[0]);
+
+	std::cout << "IP addr:" << url << std::endl;
+	client.Connect(url);
+
+	web::HttpResponse response = client.Get("/");
+
+	std::cout << std::string(response.GetContent(), response.GetSize()) << std::endl;
+	
+	//Test Server
 	if(_argc != 3)
 	{
 		std::cout << "only have 2 argument! frist is ipaddress, second is port." << std::endl;
