@@ -17,14 +17,14 @@
 class TestCall
 {
 public:
-	web::HttpResponse Home(const web::UrlParam& _params)
+	web::HttpResponse Home(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
 		std::cout << "Home函数触发" << std::endl;
 	
 		return web::View("home/index.html");
 	}
 	
-	web::HttpResponse TestPost(const web::UrlParam& _params)
+	web::HttpResponse TestPost(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
 		std::cout << "TestPost触发" << std::endl;
 	
@@ -46,14 +46,14 @@ public:
 	}
 
 
-	web::HttpResponse Test(const web::UrlParam& _params)
+	web::HttpResponse Test(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
 		std::cout << "in TestCall " << std::endl;
 		return web::Json("6666");
 	}
 };
 
-void WebsocketOnConnect(web::Websocket* _websocket)
+void WebsocketOnConnect(web::Websocket* _websocket, const web::HttpHeader& _header)
 {
 	std::cout << "OnConnect id:" << _websocket->GetId() << std::endl;
 }
@@ -88,7 +88,7 @@ void WebsocketDisconnect(web::Websocket* _websocket)
 class Chat
 {
 public:
-	void OnConnect(web::Websocket* _websocket)
+	void OnConnect(web::Websocket* _websocket, const web::HttpHeader& _header)
 	{
 		std::cout << "Chat Connect! " << std::endl;	
 	}
