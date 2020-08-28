@@ -221,15 +221,19 @@ namespace web
 			{
 				std::string::size_type pos(_cookie.find("=", leftPos));
 				std::string key(_cookie.substr(leftPos, pos - leftPos));
+				//去掉开头空格
+				key = key.substr(key.find_first_not_of(" "));
+
 				pos++;
 				std::string value(_cookie.substr(pos, rightPos - pos));
 				
 				this->cookies.insert(std::pair<std::string, std::string>(std::move(key), std::move(value)));				
 			                                                                
-				leftPos = rightPos;
-				rightPos = _cookie.find(";", leftPos);
+				leftPos = rightPos + 1;
 				if(rightPos == std::string::npos)
 					break;
+
+				rightPos = _cookie.find(";", leftPos);
 			}
 		}
 
@@ -249,16 +253,6 @@ namespace web
 
 			this->ReadCookie(this->GetAttrValue(attrs, "Cookie"));
 		}
-
-		//HttpHeader(const HttpHeader& _header):
-		//	contentLength(_header.contentLength),
-		//	connection(_header.connection),
-		//	upgrade(_header.upgrade),
-		//	secWebSocketKey(_header.secWebSocketKey),
-		//	cookies(_header.cookies)
-		//{
-
-		//}
 
 		int GetContentLength() const	
 		{
@@ -298,7 +292,7 @@ namespace web
 		bool rsv3;
 		unsigned short int opcode;
 		bool mask;
-		char maskingKey[4];
+		std::array<char, 4> maskingKey;
 		std::vector<char> payload;
 	};
 
@@ -473,76 +467,232 @@ namespace web
 		}
 	};
 
+	class ISocket
+	{
+	public:
+		virtual ~ISocket() = default;
+
+		virtual int Bind(const sockaddr* _addr, socklen_t _addrlen) = 0;
+		virtual int Listen(int _backlog) = 0;
+		virtual int Accept(sockaddr* _addr, socklen_t* _addrlen) = 0;
+		virtual int Read(void* _buffer, size_t _len) = 0;
+		virtual int Write(const void* _buffe, size_t _len) = 0;
+		virtual int Get() const = 0;
+	};
+
+	class Socket: virtual public ISocket
+	{
+	private:
+		int sockfd;
+
+	public:
+		Socket(int _domain, int _type, int _protocol):
+			sockfd(-1)
+		{
+			this->sockfd = socket(_domain, _type, _protocol);
+			if(this->sockfd == -1)
+			{
+				throw std::runtime_error("create sock failed");
+			}
+		}
+
+		Socket(int _sockfd):
+			sockfd(_sockfd)
+		{
+
+		}
+
+		~Socket()
+		{
+			close(this->sockfd);
+		}
+
+		virtual int Bind(const sockaddr* _addr, socklen_t _addrlen) override
+		{
+			return bind(this->sockfd, _addr, _addrlen);
+		}
+
+		virtual int Listen(int _backlog) override
+		{
+			return listen(this->sockfd, _backlog);
+		}
+
+		virtual int Accept(sockaddr* _addr, socklen_t* _addrlen) override
+		{
+			return accept(this->sockfd, _addr, _addrlen);
+		}
+
+		virtual int Read(void* _buffer, size_t _len)
+		{
+			return read(this->sockfd, _buffer, _len);
+		}
+
+		virtual int Write(const void* _buffer, size_t _len) override
+		{
+			return write(this->sockfd, _buffer, _len);
+		}
+
+		virtual int Get() const override
+		{
+			return this->sockfd;
+		}
+	};
+
+	class SSLSocket: virtual public ISocket
+	{
+	private:
+		using SSL_Ptr = std::unique_ptr<SSL, decltype(&SSL_free)>;
+
+		Socket sock;
+		SSL_Ptr ssl;
+
+	public:
+		SSLSocket(int _sockfd, SSL_CTX* _ctx):
+			sock(_sockfd),
+			ssl(SSL_new(_ctx), SSL_free)
+		{
+			//绑定ssl
+                	SSL_set_fd(this->ssl.get(), this->sock.Get());
+
+			if(SSL_accept(this->ssl.get()) == -1)
+			{
+				//close(_sockfd);
+				throw std::runtime_error("SSL accept failed!");
+			}	
+		}
+
+		virtual int Bind(const sockaddr* _addr, socklen_t _addrlen) override
+		{
+			return this->sock.Bind(_addr, _addrlen);
+		}
+
+		virtual int Listen(int _backlog) override
+		{
+			return this->sock.Listen(_backlog);
+		}
+
+		virtual int Accept(sockaddr* _addr, socklen_t* _addrlen) override
+		{
+			return this->sock.Accept(_addr, _addrlen);
+		}
+
+		virtual int Read(void* _buffer, size_t _len)  override
+		{
+			return SSL_read(this->ssl.get(), _buffer, _len);
+		}
+
+		virtual int Write(const void* _buffer, size_t _len) override
+		{
+			return SSL_write(this->ssl.get(), _buffer, _len);
+		}
+
+		virtual int Get() const override
+		{
+			return this->sock.Get();
+		}
+
+		SSL* GetSSL() const
+		{
+			return this->ssl.get();
+		}
+
+
+	};
+
 	class Websocket
 	{
 	private:
-		SSL* ssl;
-
+		ISocket* sock;
 		//将数据变为websocket协议格式
+		//若超出uint64范围，则需要大数类及注意websocekt数据帧
 		std::vector<char> PackMessage(const char* _data, size_t _len, bool _isbuffer)
 		{
-			std::vector<char> temp;
+			std::vector<char> bytes;
 
 			if(_isbuffer)
 			{
-				temp.push_back(130);
+				bytes.push_back(130);
 			}
 			else
 			{
-				temp.push_back(129);
+				bytes.push_back(129);
 			}
 
-			//断言仅用一个数据帧就可以发送完数据
-			assert(_len < 127 + std::numeric_limits<uint64_t>::max());
+			size_t size(0);
 			
-			if(_len > 126 + std::numeric_limits<uint8_t>::max())
+			if(_len > std::numeric_limits<uint16_t>::max())
 			{
-				temp.push_back(127);
-				uint64_t len(_len - 127);
+				//std::cout << "7bit + 64bit" << std::endl;
 
-				temp.insert(temp.end(), reinterpret_cast<char*>(&len), reinterpret_cast<char*>(&len) + sizeof(len));
+				bytes.push_back(127);
+				uint64_t len;
+
+				size = len;
+
+				//将本机字节序转换到网络字节序
+				len = htonl(size);
+
+				bytes.insert(bytes.end(), reinterpret_cast<char*>(&len), reinterpret_cast<char*>(&len) + sizeof(len));
 			}
 			else if(_len >= 126)
 			{
-				temp.push_back(126);
-				uint8_t len(_len - 126);
+				//std::cout << "7bit + 16bit" << std::endl;
+
+				bytes.push_back(126);
+				uint16_t len;
+
+				size = _len;
+
+				//将本机字节序转换到网络字节序
+				len = htons(size);
                                                                                                                                      
-                                temp.insert(temp.end(), reinterpret_cast<char*>(&len), reinterpret_cast<char*>(&len) + sizeof(len));
+                                bytes.insert(bytes.end(), reinterpret_cast<char*>(&len), reinterpret_cast<char*>(&len) + sizeof(len));
 			}
 			else
 			{
-				temp.push_back(_len);
+				//std::cout << "7bit" << std::endl;
+				bytes.push_back(_len);
+				size = _len;
 			}
 
-			temp.insert(temp.end(), _data, _data + _len);
+			bytes.insert(bytes.end(), _data, _data + size);
 
-			return temp;
+			_len -= size;
+			assert(_len == 0);
+
+			return bytes;
 		}
 
 	public:
-		Websocket(SSL* _ssl):
-			ssl(_ssl)
+		Websocket(ISocket* _sock):
+			sock(_sock)
 		{
 
 		}
 
 		long GetId() const
 		{
-			return reinterpret_cast<long>(this->ssl);
+			return reinterpret_cast<long>(this->sock);
 		}
 
 		void SendText(std::string_view _text)
 		{
 			std::vector<char> data(this->PackMessage(_text.data(), _text.size(), false));
 			
-			SSL_write(this->ssl, data.data(), data.size());
+			if(sock->Write(data.data(), data.size()) != data.size())
+			{
+				throw std::runtime_error("websocket send failed!");
+			}
 		}
 
 		void SendByte(char* _data, size_t _len)
 		{
 			std::vector<char> data(this->PackMessage(_data, _len, true));
 
-			SSL_write(this->ssl, data.data(), data.size());
+			if(sock->Write(data.data(), data.size()) != data.size())
+			{
+				throw std::runtime_error("websocket send failed!");
+			}                                                          		
 		}
 	};
 
@@ -857,6 +1007,7 @@ namespace web
 
 		std::unique_ptr<Router> router;
 
+		bool useSSL;
 		bool listenSignal;
 
 		//返回websocket的Sec-Websocket-Accept码
@@ -905,129 +1056,237 @@ namespace web
 		//参考:
 		//https://blog.csdn.net/zhusongziye/article/details/80316127
 		//https://blog.csdn.net/hnzwx888/article/details/84021754
-		static WebsocketData GetWebsocketMessage(SSL* _ssl)
+		//有可能tcp粘包，所以返回多个
+		static std::vector<WebsocketData> GetWebsocketMessage(ISocket* _sock)
 		{
-			char buffer[1024];
+			//tcp粘包时第二个websocket包已读部分
+			std::vector<char> lastBuffer;
 
-			memset(buffer, 0, sizeof(buffer));
-			const int recvLen = SSL_read(_ssl, buffer, sizeof(buffer));
+			std::array<char, 1024> buffer;
+			decltype(buffer)::iterator leftIter;
 
-			if(recvLen <= 0)
-			{
-				if(recvLen == -1)
-				{
-					SSL_shutdown(_ssl);
-				}
-
-				std::string temp("websocket recv but return ");
-
-				temp += std::to_string(recvLen);
-				throw std::runtime_error(temp.c_str());
-			}
-
-			WebsocketData info;
-			std::bitset<16> bits(buffer[0] & 255 | (buffer[1] << 8));
-			info.fin = bits[0];
-			info.rsv1 = bits[1];
-			info.rsv2 = bits[2];
-			info.rsv3 = bits[3];
-			info.opcode = buffer[0] & 15;
-			info.mask = bits[15];
-			unsigned short length(buffer[1] & 127);
-
-			int readOffset(2);
-
-			if(length == 126)
-			{
-				length = *reinterpret_cast<unsigned int*>(&buffer[2]);
-				readOffset += 2;
-			}
-			else if(length == 127)
-			{
-				length = *reinterpret_cast<unsigned long long*>(&buffer[4]);
-				readOffset += 4;
-			}
-
-			info.payload.resize(length);
-			memset(info.payload.data(), 0, info.payload.size());
-
-			if(info.mask == true)
-			{
-				std::copy(buffer + readOffset, buffer + readOffset + 4, info.maskingKey);
-				readOffset += 4;
-				for(int i = 0; i < length; i++)
-				{
-					const int j = i % 4;
-					info.payload[i] = buffer[readOffset + i] ^ info.maskingKey[j];
-				}
-			}
-			else
-			{
-				std::copy(buffer + readOffset, buffer + readOffset + length, info.payload.data());
-			}
-
-			return info;
-		}
-
-		static HttpRequest GetHttpRequest(SSL* _ssl)
-		{
-			bool finish(false);
-			int contentLen(0);
-			std::vector<char> content;
+			std::vector<WebsocketData> result;
 
 			do
 			{
+				//复制上次的缓冲区
+				if(lastBuffer.size() > 0)
+				{
+					std::cout << "多次循环 size" << lastBuffer.size() << std::endl;
+					std::copy(lastBuffer.begin(), lastBuffer.end(), buffer.begin());
+				}
 
-				char buffer[1024];
+				//读取websocket头信息
+				int recvLen = _sock->Read(buffer.data() + lastBuffer.size(), buffer.size() - lastBuffer.size());
 
-				memset(buffer, 0, sizeof(buffer));
+				leftIter = buffer.begin();	
 
-				const int recvLen =  SSL_read(_ssl, buffer, sizeof(buffer));
+				lastBuffer.clear();
 
-				//const int recvLen = recv(_sockfd, buffer, sizeof(buffer)  1, 0);
+				if(recvLen <= 0)
+				{
+					std::string temp("wesocket recv but return ");
+
+					temp += std::to_string(recvLen);
+					throw std::runtime_error(temp);
+				}
+
+				//读取2byte Websocket信息
+                		WebsocketData info = {};
+                		//std::bitset<16> bits(*leftIter & 255 | (*(leftIter + 1) << 8));
+                		//info.fin = bits[0];
+                		//info.rsv1 = bits[1];
+                		//info.rsv2 = bits[2];
+                		//info.rsv3 = bits[3];
+                		//info.opcode = *leftIter & 15;
+                		//info.mask = bits[15];
+                		//unsigned short length(*(leftIter + 1) & 127);
 				
+				std::bitset<8> bits(*leftIter);
+				info.fin = bits[0];
+				info.rsv1 = bits[1];
+				info.rsv2 = bits[2];
+				info.rsv3 = bits[3];
+				info.opcode = *leftIter & 15;
+
+				leftIter++;
+
+				bits = htons(*leftIter);
+				info.mask = bits[0];
+				unsigned short length(*leftIter & 127);
+		
+				//移动读取下标
+				leftIter++;
+
+				if(length == 126)
+				{
+					length = ntohs(*reinterpret_cast<uint16_t*>(leftIter));
+					leftIter += sizeof(uint16_t);
+				}
+				else if(length == 127)
+				{
+					length = ntohl(*reinterpret_cast<uint64_t*>(leftIter));
+					leftIter += sizeof(uint64_t);
+				}
+				                                                               
+				if(info.mask == true)
+				{
+					std::copy(leftIter, leftIter + 4, info.maskingKey.begin());
+					leftIter += 4;
+				}
+
+				//读取websocket内容
+				info.payload.resize(length);
+
+				decltype(buffer)::iterator rightIter(buffer.begin() + recvLen);
+
+				//判断能否一次读取完毕payload
+				if((rightIter - leftIter) < length)
+				{
+					std::copy(leftIter, rightIter, info.payload.begin());
+
+					int unRead(length - (rightIter - leftIter));
+					while (unRead > 0) 
+					{
+						memset(buffer.data(), 0, buffer.size());
+						recvLen = _sock->Read(buffer.data(), buffer.size());
+					
+						if(recvLen <= 0)
+						{
+							std::string temp("wesocket recv but return ");
+						                                                       
+							temp += std::to_string(recvLen);
+							throw std::runtime_error(temp);
+						}
+
+						leftIter = buffer.begin();
+
+						if(recvLen > unRead)
+							rightIter = buffer.begin() + unRead;
+						else
+							rightIter = buffer.begin() + recvLen;
+							
+						const int hadRead = length - unRead;
+						std::copy(leftIter, rightIter, info.payload.begin() + hadRead);
+
+						unRead -= rightIter - leftIter;
+					}
+				}
+				else
+				{
+					std::copy(leftIter, leftIter + length, info.payload.begin());
+				}
+
+				//发现还有未读数据则加入到缓冲区
+				//以致下次循环继续接收数据	
+				if(rightIter != buffer.begin() + recvLen)
+				{
+					lastBuffer.insert(lastBuffer.begin(), rightIter, buffer.begin() + recvLen);
+				}
+
+				if(info.mask == true)
+				{
+					for(int i = 0; i < info.payload.size(); i++)
+					{
+						const int j = i % 4;
+						info.payload[i] = info.payload[i] ^ info.maskingKey[j];
+					}
+				}
+
+				result.emplace_back(std::move(info));
+
+			} while(lastBuffer.size() > 0);
+
+			return result;
+		}
+
+		static HttpRequest GetHttpRequest(ISocket* _sock)
+		{
+			int bodyAccLen(0);
+			int bodyReqLen(0);
+			std::vector<char> content;
+
+			std::string_view view;
+			std::string::size_type left;
+			std::string::size_type right;
+
+			//首次读取数据分析header
+			char buffer[1024];
+			do
+			{
+				const int recvLen = _sock->Read(buffer, sizeof(buffer));
+				if(recvLen <= 0)
+				{
+					//recv超时
+					if(recvLen == -1)
+					{
+						//SSL_read发生io错误时似乎不应该调用shutdown?
+						//SSL_shutdown(_ssl);
+					}
+				                                                
+					std::string temp("recv but return ");
+				                                                
+					temp += std::to_string(recvLen);
+				                                                
+					throw std::runtime_error(temp);
+					//ERR_print_errors_fp(stderr);
+				}
+				
+				content.insert(content.end(), buffer, buffer + recvLen);
+				view = std::string_view(content.data(), content.size());
+
+				left = view.find("\r\n\r\n");
+			}while(left == std::string::npos);
+
+			bodyAccLen = content.size() - (left + 4);
+			
+			left = view.find("Content-Length: ");
+			if(left != std::string::npos)
+			{
+				left += 16; 
+				right = view.find("\r\n", left);
+				if(right != std::string::npos)
+				{
+					bodyReqLen = std::stoi(view.substr(left, right).data());
+				}
+			}
+			
+
+			//接收body
+			while(bodyAccLen < bodyReqLen)
+			{
+				const int recvLen = _sock->Read(buffer, sizeof(buffer));
 
 				if(recvLen <= 0)
 				{
 					//recv超时
 					if(recvLen == -1)
 					{
-						SSL_shutdown(_ssl);
+						//SSL_shutdown(_ssl);
 					}
 
 					std::string temp("recv but return ");
 
 					temp += std::to_string(recvLen);
 
-					throw std::runtime_error(temp.c_str());
-					//finish = true;
+					throw std::runtime_error(temp);
 					//ERR_print_errors_fp(stderr);
 				}
 
-				contentLen += recvLen;
-
-				//请求头部接收完毕
 				content.insert(content.end(), buffer, buffer + recvLen);
-
-				if(strstr(content.data(), "\r\n\r\n") != nullptr)
-				{
-					finish = true;
-				}
-
+				bodyAccLen += recvLen;
 			}
-			while(!finish);
 
 			return HttpRequest(content.data());
 		}
 
-		static void SendHttpResponse(SSL* _ssl, const HttpResponse& _response)
+		static void SendHttpResponse(ISocket* _sock, const HttpResponse& _response)
 		{
 
 			const size_t contentSize = _response.GetSize();
 			const char* content = _response.GetContent();
 
-			SSL_write(_ssl, content, contentSize);
-			//send(_sockfd, content, contentSize, 0);
+			_sock->Write(content, contentSize);
 		}
 
 		static UrlParam JsonToUrlParam(const char* _body, size_t _len)
@@ -1111,7 +1370,7 @@ namespace web
 			return bytes;
 		}
 
-		static inline SSL_Ptr HandleAccept(int _sockfd, int _epfd, SSL_CTX* _ctx)
+		inline std::unique_ptr<ISocket> HandleAccept(int _sockfd, int _epfd, SSL_CTX* _ctx)
 		{
 			//设置超时时间
 			struct timeval timeout={3,0};//3s
@@ -1119,43 +1378,43 @@ namespace web
 				std::cout << "setsoockopt failed!" << std::endl;
     			if(setsockopt(_sockfd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == -1)
 				std::cout << "setsoockopt failed!" << std::endl;
-			
-			//绑定ssl
-			SSL_Ptr ssl(SSL_new(_ctx), SSL_free);
-			SSL_set_fd(ssl.get(), _sockfd);
-			//ssl握手
-			if(SSL_accept(ssl.get()) == -1)
+		
+			std::unique_ptr<ISocket> sock(nullptr);
+			if(this->useSSL)
 			{
-				close(_sockfd);
-				throw std::runtime_error("SSL accept failed!");
-			}	
+				sock = std::unique_ptr<ISocket>(new SSLSocket(_sockfd, _ctx));
+			}
+			else
+			{
+				sock = std::unique_ptr<ISocket>(new Socket(_sockfd));	
+			}
 
 			epoll_event ev;
 
-			ev.data.fd = _sockfd;
+			ev.data.fd = sock->Get();
 			ev.events = EPOLLIN;
-			epoll_ctl(_epfd, EPOLL_CTL_ADD, _sockfd, &ev);
+			epoll_ctl(_epfd, EPOLL_CTL_ADD, sock->Get(), &ev);
 		
-			return ssl;
+			return sock;
 		}
 
-		static inline void CloseSocket(int _epfd, SSL* _ssl, epoll_event* _ev)
+		static inline void CloseSocket(int _epfd, epoll_event* _ev)
 		{
-			close(_ev->data.fd);
+			//close(_ev->data.fd);
 			epoll_ctl(_epfd, EPOLL_CTL_DEL, _ev->data.fd, _ev);
 		}
 
-		static void ListenProc(HttpServer* _httpServer, sockaddr_in _sockAddr)
+		void ListenProc(HttpServer* _httpServer, sockaddr_in _sockAddr)
 		{
-			const int serverSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			Socket serverSock(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-			if(serverSock == -1)
+			if(serverSock.Get() == -1)
 			{
 				std::cout << "create socket failed!" << std::endl;
 				return;
 			}
 		
-			if(bind(serverSock, reinterpret_cast<sockaddr*>(&_sockAddr), sizeof(_sockAddr)) == -1)
+			if(serverSock.Bind(reinterpret_cast<sockaddr*>(&_sockAddr), sizeof(_sockAddr)) == -1)
 			{	
 				std::cout << "bind socket failed!" << std::endl;
 				perror("bind");
@@ -1164,7 +1423,7 @@ namespace web
 		
 			const int max = 20;
 		
-			if(listen(serverSock, max))
+			if(serverSock.Listen(max))
 			{
 				std::cout << "listen failed!" << std::endl;
 				return;
@@ -1175,14 +1434,14 @@ namespace web
 		
 			if(epfd == -1)
 			{
-				std::cout << "create epoll faile!" << std::endl;
+				std::cout << "create epoll failed!" << std::endl;
 				return;
 			}
 
 			epoll_event ev;	
-			ev.data.fd = serverSock;
+			ev.data.fd = serverSock.Get();
 			ev.events = EPOLLIN;
-			if(epoll_ctl(epfd, EPOLL_CTL_ADD, serverSock, &ev) == -1)
+			if(epoll_ctl(epfd, EPOLL_CTL_ADD, serverSock.Get(), &ev) == -1)
 			{
 				std::cout << "epoll control failed!" << std::endl;
 				return;
@@ -1194,7 +1453,6 @@ namespace web
 			
 			///支持ssl绑定证书
 			SSL_CTX_Ptr ctx(SSL_CTX_new(SSLv23_server_method()), SSL_CTX_free);
-			//SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
 			if(ctx == nullptr)
 			{
 				std::cout << "ctx is null" << std::endl;
@@ -1240,7 +1498,7 @@ namespace web
 				return;
 			}
 			
-			std::unordered_map<int, SSL_Ptr> sslMap;
+			std::unordered_map<int, std::unique_ptr<ISocket>> sslMap;
 			std::unordered_map<int, std::unique_ptr<Websocket>> websocketMap;
 			std::unordered_map<int, std::string> websocketUrlMap;
 
@@ -1256,12 +1514,12 @@ namespace web
 				for(int i = 0; i < nfds; i++)
 				{
 					//该描述符为服务器则accept
-					if(events[i].data.fd == serverSock)
+					if(events[i].data.fd == serverSock.Get())
 					{
 						sockaddr_in clntAddr = {};
 				             	socklen_t size = sizeof(clntAddr);
 		
-						const int connfd = accept(serverSock, reinterpret_cast<sockaddr*>(&clntAddr), &size);
+						const int connfd = serverSock.Accept(reinterpret_cast<sockaddr*>(&clntAddr), &size);
 						if(connfd == -1)
 						{
 							std::cout << "accept failed!" << std::endl;
@@ -1272,8 +1530,8 @@ namespace web
 
 						try
 						{
-							SSL_Ptr temp(HttpServer::HandleAccept(connfd, epfd, ctx.get()));
-							sslMap.insert(std::pair<int, SSL_Ptr>(connfd, std::move(temp)));
+							std::unique_ptr<ISocket> sock(HttpServer::HandleAccept(connfd, epfd, ctx.get()));
+							sslMap.insert(std::pair<int, std::unique_ptr<ISocket>>(connfd, std::move(sock)));
 						}
 						catch(std::runtime_error _ex)
 						{
@@ -1288,27 +1546,30 @@ namespace web
 						{
 							try
 							{
-								const WebsocketData info = HttpServer::GetWebsocketMessage(sslMap.at(events[i].data.fd).get());
-
-								//opcode 为8则表示断开连接
-								if(info.opcode == 8)
+								const std::vector<WebsocketData> infos = HttpServer::GetWebsocketMessage(sslMap.at(events[i].data.fd).get());
+								for(const auto& info: infos)
 								{
-									_httpServer->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get());
-									HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
-									sslMap.erase(events[i].data.fd);
-									websocketUrlMap.erase(events[i].data.fd);
-									websocketMap.erase(events[i].data.fd);
-								}
-								else
-								{
-									_httpServer->router->RunWebsocketOnMessageCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get(), info.payload.data(), info.payload.size());
+									//opcode 为8则表示断开连接
+									if(info.opcode == 8)
+									{
+										_httpServer->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get());
+										HttpServer::CloseSocket(epfd, &events[i]);
+										sslMap.erase(events[i].data.fd);
+										websocketUrlMap.erase(events[i].data.fd);
+										websocketMap.erase(events[i].data.fd);
+									}
+									else
+									{
+										_httpServer->router->RunWebsocketOnMessageCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get(), info.payload.data(), info.payload.size());
+									}
 								}
 							}
 							catch (std::runtime_error _ex)
 							{
 								_httpServer->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get());
-								std::cout << _ex.what() << std::endl;
-								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+								std::cout << "websocke error:" << _ex.what() << std::endl;
+								std::cout << "url:" << websocketUrlMap.at(events[i].data.fd) << std::endl;
+								HttpServer::CloseSocket(epfd, &events[i]);
 								sslMap.erase(events[i].data.fd);
 								websocketUrlMap.erase(events[i].data.fd);
 								websocketMap.erase(events[i].data.fd);
@@ -1339,12 +1600,26 @@ namespace web
 
 									HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 									std::cout << "回复websocket完毕" << std::endl;
-									websocketUrlMap.insert(std::pair<int, std::string>(static_cast<int>(events[i].data.fd), request.GetUrl()));
 									
 									std::unique_ptr<Websocket> temp(new Websocket(sslMap.at(events[i].data.fd).get()));
+									
+									try 
+									{
+										_httpServer->router->RunWebsocketConnectCallback(request.GetUrl(), temp.get(), request.GetHeader());
 
-									websocketMap.insert(std::pair<int, std::unique_ptr<Websocket>>(static_cast<int>(events[i].data.fd), std::move(temp)));
-									_httpServer->router->RunWebsocketConnectCallback(request.GetUrl(), websocketMap.at(events[i].data.fd).get(), request.GetHeader());
+										websocketMap.insert(std::pair<int, std::unique_ptr<Websocket>>(static_cast<int>(events[i].data.fd), std::move(temp)));
+										websocketUrlMap.insert(std::pair<int, std::string>(static_cast<int>(events[i].data.fd), request.GetUrl()));
+									}
+									catch(std::runtime_error _ex)
+									{
+										std::cout << "websocket error:" << _ex.what() << std::endl;
+										std::cout << "url:" << request.GetUrl() << std::endl;
+									}
+									catch(std::logic_error _ex)
+									{
+										std::cout << "websocket error:" << _ex.what() << std::endl;
+										std::cout << "url:" << request.GetUrl() << std::endl;
+									}
 								}
 								else
 								{
@@ -1353,6 +1628,7 @@ namespace web
 										const UrlParam params(HttpServer::JsonToUrlParam(request.GetBody(), request.GetBodyLen()));
 
 										HttpResponse response = _httpServer->router->RunCallback(request.GetType(), request.GetUrl(), params, request.GetHeader());
+
 										HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 									}
 									else if(request.GetType() == "GET")
@@ -1360,13 +1636,19 @@ namespace web
 										try
 										{
 											const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
+											std::vector<HttpAttr> attrs = 
+											{
+												{"Cache-Control", "no-store"}
+											};
 
-											HttpResponse response(200, {}, body.data(), body.size());
+											HttpResponse response(200, std::move(attrs), body.data(), body.size());
 											                             
 											HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
 										}
 										catch(std::runtime_error _ex)
 										{
+											std::cout << _ex.what() << std::endl;
+
 											HttpResponse response(404, {}, nullptr, 0);
 											                             
 											HttpServer::SendHttpResponse(sslMap.at(events[i].data.fd).get(), std::move(response));
@@ -1381,7 +1663,7 @@ namespace web
 									
 									if(request.GetHeader().GetConnection() != "keep-alive")
 									{
-										HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+										HttpServer::CloseSocket(epfd, &events[i]);
 										sslMap.erase(events[i].data.fd);
 									}
 								}
@@ -1390,7 +1672,7 @@ namespace web
 							catch(std::runtime_error _ex)
 							{
 								std::cout << _ex.what() << std::endl;
-								HttpServer::CloseSocket(epfd, sslMap.at(events[i].data.fd).get(), &events[i]);
+								HttpServer::CloseSocket(epfd, &events[i]);
 								sslMap.erase(events[i].data.fd);
 							}
 						}
@@ -1403,7 +1685,6 @@ namespace web
 
 			}
 
-			close(serverSock);
 			std::cout << "server close" << std::endl;
 		}
 
@@ -1414,38 +1695,30 @@ namespace web
 			OpenSSL_add_all_algorithms();
 		}
 
-		static void sigpipe_handler(int _val)
-		{
-			std::cout<< "sigpipe_handler:" << _val << std::endl;
-		}
-
 	public:
 		HttpServer(std::unique_ptr<Router>&& _router):
-			router(std::move(_router))
+			router(std::move(_router)),
+			useSSL(false)
 		{
 			this->InitSSL();
 
 			struct sigaction sh;
    			struct sigaction osh;
 
-			//当SSL_shutdown、SSL_write 等对远端进行操作但对方已经断开连接时会触发异常信号、导致程序崩溃、
-			//以下代码似乎可以忽略这个信号
+			//**忽略socket发送数据远端关闭时,触发的SIGIPIPE信号
+			signal(SIGPIPE, SIG_IGN);
+
+			//**当SSL_shutdown、SSL_write 等对远端进行操作但对方已经断开连接时会触发异常信号、导致程序崩溃、
 			//https://stackoverflow.com/questions/32040760/c-openssl-sigpipe-when-writing-in-closed-pipe?r=SearchResults
-   			sh.sa_handler = &HttpServer::sigpipe_handler; //Can set to SIG_IGN
-   			// Restart interrupted system calls
-   			sh.sa_flags = SA_RESTART;
-
-   			// Block every signal during the handler
-   			sigemptyset(&sh.sa_mask);
-
-   			if (sigaction(SIGPIPE, &sh, &osh) < 0)
-   			{
-				std::cout << "sigcation failed!" << std::endl;
-   			}
-			//
 		}
 
-		void Listen(std::string_view _address, int _port)
+		HttpServer& UseSSL(bool _isUse)
+		{
+			this->useSSL = _isUse;
+			return *this;
+		}
+
+		HttpServer& Listen(std::string_view _address, int _port)
 		{
 			this->listenSignal = true;
 			sockaddr_in serverAddr = {};
@@ -1454,21 +1727,22 @@ namespace web
 			serverAddr.sin_addr.s_addr = inet_addr(_address.data());
 			serverAddr.sin_port = htons(_port);
 
-			std::thread proc(HttpServer::ListenProc, this, serverAddr);
-
 			std::cout << "server listening... ip:" << _address << " port:" << ntohs(serverAddr.sin_port) << std::endl;
+			this->ListenProc(this, serverAddr);
 
-			proc.detach();
+			return *this;
 		}
 
-		void Stop()
+		HttpServer& Stop()
 		{
 			if(this->listenSignal == false)
 			{
-				throw std::runtime_error("server is not listening.");
+				throw std::logic_error("server is not listening.");
 			}
 
 			this->listenSignal = false;
+
+			return *this;
 		}
 	};
 
@@ -1506,6 +1780,13 @@ namespace web
 
 	HttpResponse Json(std::string_view _str)
 	{
-		return HttpResponse(200, {}, _str.data(), _str.size());
+		std::vector<HttpAttr> attrs = 
+		{
+			{"Access-Control-Allow-Origin", "*"}
+		};
+
+
+
+		return HttpResponse(200, std::move(attrs), _str.data(), _str.size());
 	}
 };
