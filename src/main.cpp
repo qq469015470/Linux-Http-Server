@@ -39,6 +39,14 @@ public:
 		std::cout << "in TestCall " << std::endl;
 		return web::Json("6666");
 	}
+
+	web::HttpResponse TestNumber(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		std::cout << "a:" << _params["a"].ToString() << std::endl;
+		std::cout << "b:" << _params["b"].ToString() << std::endl;
+
+		return web::Json("");
+	}
 };
 
 void WebsocketOnConnect(web::Websocket* _websocket, const web::HttpHeader& _header)
@@ -109,9 +117,9 @@ int main(int _argc, char* _argv[])
 	std::cout << "IP addr:" << url << std::endl;
 	client.Connect(url);
 
-	web::HttpResponse response = client.Get("/");
+	web::HttpResponse response = client.SendRequest("GET", "/");
 
-	std::cout << std::string(response.GetContent(), response.GetSize()) << std::endl;
+	std::cout << std::string(response.GetContent(), response.GetContentSize()) << std::endl;
 	
 	//Test Server
 	if(_argc != 3)
@@ -131,6 +139,7 @@ int main(int _argc, char* _argv[])
 
 	test->RegisterUrl("GET", "/", &TestCall::Home, &temp);
 	test->RegisterUrl("POST", "/test/post", &TestCall::TestPost, &temp);
+	test->RegisterUrl("POST", "/test/number", &TestCall::TestNumber, &temp);
 	test->RegisterUrl("GET", "/Test", &TestCall::Test, &temp);
 	test->RegisterWebsocket("/chat", &WebsocketOnConnect, &TestWebSocket, &WebsocketDisconnect);
 	test->RegisterWebsocket("/asd", &Chat::OnConnect, &Chat::OnMessage, &Chat::OnDisconnect, &chat);
