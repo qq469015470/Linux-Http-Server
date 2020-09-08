@@ -14,7 +14,7 @@ set(EXECUTABLE_OUTPUT_PATH ./bin)
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
-add_executable(UnitTest main.cpp JsonObjTest.cpp)
+add_executable(UnitTest main.cpp)
 
 target_include_directories(UnitTest PRIVATE ${SRC_DIR}/include/openssl)
 

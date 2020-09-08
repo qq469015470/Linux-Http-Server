@@ -512,8 +512,9 @@ namespace web
 		}
 
 	public:
-		HttpHeader(std::string_view _headerStr):
-			attrs(this->ReadAttr(_headerStr)),
+		//传递Http头属性开始即首行的路径地址或状态码下一行开始
+		HttpHeader(std::string_view _attrStr):
+			attrs(this->ReadAttr(_attrStr)),
 			contentLength(0)
 		{
 			const std::string temp = this->GetAttrValue(this->attrs, "Content-Length");
@@ -535,7 +536,8 @@ namespace web
 			const std::string temp = this->GetAttrValue(this->attrs, "Content-Length");
 			if(!temp.empty())
 				this->contentLength = std::stoll(temp);
-
+			
+			this->ReadCookie(this->GetAttrValue(this->attrs, "Cookie"));
 		}
 
 		size_t GetContentLength() const	
@@ -623,19 +625,22 @@ namespace web
 			left = right + 1;
 
 			//读取url
-			right = line.find(" ", left);
+			right = line.find("?", left);
+			if(right == std::string::npos)
+				right = line.find(" ", left);
+
 			if(right == std::string::npos)
 			{
 				throw std::runtime_error("could not read url!");
 			}
 			this->url = line.substr(left, right - left);
 			left = right + 1;
-			//去掉地址?开头的参数
-			right = this->url.find("?", left);
-			if(right != std::string::npos)
-			{
-				this->url = line.substr(left, right - left);
-			}
+			////去掉地址?开头的参数
+			//right = this->url.find("?", left);
+			//if(right != std::string::npos)
+			//{
+			//	this->url = line.substr(left, right - left);
+			//}
 	
 
 			//读取http协议版本
@@ -676,11 +681,11 @@ namespace web
 			this->ReadBody(pos + 4, bodyLen);
 		}
 
-		HttpRequest(std::string _type, std::string _url, const std::vector<HttpAttr>& _attrs, std::vector<char> _body):
+		HttpRequest(std::string _type, std::string _url, std::vector<HttpAttr> _attrs, std::vector<char> _body):
 			type(_type),
-			url(_url),
+			url(_url.substr(0, _url.find("?"))),
 			version("HTTP/1.1"),
-			header(HttpHeader(_attrs)),
+			header(HttpHeader(std::move(_attrs))),
 			body(std::move(_body))
 		{
 			
