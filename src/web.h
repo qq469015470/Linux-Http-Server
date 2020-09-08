@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 #include <map>
+#include <stack>
 #include <typeinfo>
 #include <stdexcept>
 #include <memory>
@@ -237,6 +238,95 @@ namespace web
 			return params;
 		}
 
+		static void ParseJson(JsonObj& curJson, std::string _json)
+		{
+			static std::unordered_map<char, char> special =
+			{
+				{'{', '}'},
+				{'[', ']'},
+				{'"', '"'},
+			};
+
+			std::string::size_type pos(0);
+
+			pos = _json.find_first_not_of(' ');
+			auto iter = special.find(_json[pos]);
+			if(iter == special.end())
+			{
+				std::cout << "number" << std::stod(_json) << std::endl;
+				curJson = std::stod(_json);
+				return;
+			}
+
+			do
+			{
+				switch(iter->first)
+				{
+					case '"':
+					{
+						curJson = _json.substr(pos + 1, _json.find('"', pos + 1) - (pos + 1));
+						return;
+						break;
+					}
+					case '{':
+					{
+						std::string::size_type left(_json.find('"', pos) + 1);
+						std::string::size_type right(_json.find('"', left + 1));
+
+						const std::string key = _json.substr(left, right - left);
+
+						left = _json.find(':', right + 1);
+						left = _json.find_first_not_of(' ', left + 1);
+
+						auto endChar = special.find(_json[left]);
+						if(endChar != special.end())
+							right = _json.find(endChar->second, left + 1) + 1;
+						else
+							right = _json.find(",", left + 1);
+
+						const std::string value = _json.substr(left, right - left);
+
+						//std::cout << "key:" << key << " value:" << value << std::endl;
+						ParseJson(curJson[key], value);
+
+						break;
+					}
+					case '[':
+					{
+						const std::string value = _json.substr(pos + 1, _json.find(']', pos + 1) - (pos + 1));
+						std::string::size_type leftTemp(0);
+						std::string::size_type rightTemp(std::string::npos);
+					
+						do
+						{	
+							auto endChar = special.find(value[leftTemp]);
+							rightTemp = value.find(endChar->second, leftTemp + 1); 
+							rightTemp = value.find(",", rightTemp + 1);
+							const std::string arrayValue = value.substr(leftTemp, rightTemp - leftTemp);
+
+							//std::cout << "[] value:" << arrayValue<< std::endl;
+							curJson.Push("");
+							JsonObj::ParseJson(curJson[curJson.GetArraySize() - 1], arrayValue);
+
+							leftTemp = value.find_first_not_of(' ', rightTemp + 1);
+						} while(rightTemp != std::string::npos);
+						break;
+					}
+				}
+
+
+				pos = _json.find(',', pos + 1);
+			} while(pos != std::string::npos);
+		}
+
+		static JsonObj ParseJson(std::string _json)
+		{
+			JsonObj result;
+
+			ParseJson(result, _json);
+			
+			return result;
+		}
 
 		JsonObj& operator[](std::string _key)
 		{
@@ -371,6 +461,14 @@ namespace web
 				return "";
 
 			return this->val->substr(1,this->val->size() - 2);
+		}
+
+		double ToDouble() const
+		{
+			if(this->valType != JsonType::NUMBER)
+				return std::numeric_limits<double>::infinity();
+
+			return std::stod(this->val.value());
 		}
 
 		std::string ToJson() const
