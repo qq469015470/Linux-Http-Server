@@ -167,6 +167,13 @@ namespace web
 			}
 		}
 
+		JsonObj& operator=(const JsonObj& _jsonObj)
+		{
+			return *this;
+		}
+
+
+
 	public:
 		JsonObj():
 			valType(JsonType::NULLVAL)
@@ -180,6 +187,15 @@ namespace web
 			val(std::move(_obj.val)),
 			arr(std::move(_obj.arr))
 		{
+		}
+
+		JsonObj& operator=(JsonObj&& _obj)
+		{
+			this->attrs = std::move(_obj.attrs);
+			this->valType = std::move(_obj.valType);
+			this->val = std::move(_obj.val);
+			this->arr = std::move(_obj.arr);
+			return *this;
 		}
 
 		static JsonObj ParseFormData(std::string _formData)
@@ -253,7 +269,6 @@ namespace web
 			auto iter = special.find(_json[pos]);
 			if(iter == special.end())
 			{
-				std::cout << "number" << std::stod(_json) << std::endl;
 				curJson = std::stod(_json);
 				return;
 			}
@@ -417,13 +432,13 @@ namespace web
 			return *this;
 		}
 
-		JsonObj& operator=(const JsonObj& _obj)
-		{
-			this->val = _obj.ToJson();
-			this->valType = JsonType::JSON;
+		//JsonObj& operator=(const JsonObj& _obj)
+		//{
+		//	this->val = _obj.ToJson();
+		//	this->valType = JsonType::JSON;
 
-			return *this;
-		}
+		//	return *this;
+		//}
 
 		void SetNull()
 		{
@@ -697,6 +712,7 @@ namespace web
 		//请求类型(例:get post)
 		std::string type;
 		std::string url;
+		std::string queryString;
 		std::string version;
 		std::optional<HttpHeader> header;
 		std::vector<char> body;
@@ -723,22 +739,20 @@ namespace web
 			left = right + 1;
 
 			//读取url
-			right = line.find("?", left);
-			if(right == std::string::npos)
-				right = line.find(" ", left);
-
+			right = line.find(" ", left);
 			if(right == std::string::npos)
 			{
 				throw std::runtime_error("could not read url!");
 			}
 			this->url = line.substr(left, right - left);
 			left = right + 1;
-			////去掉地址?开头的参数
-			//right = this->url.find("?", left);
-			//if(right != std::string::npos)
-			//{
-			//	this->url = line.substr(left, right - left);
-			//}
+			//去掉地址?开头的参数
+			right = this->url.find("?");
+			if(right != std::string::npos)
+			{
+				this->queryString = this->url.substr(right + 1);
+				this->url = this->url.substr(0, right);
+			}
 	
 
 			//读取http协议版本
@@ -782,6 +796,7 @@ namespace web
 		HttpRequest(std::string _type, std::string _url, std::vector<HttpAttr> _attrs, std::vector<char> _body):
 			type(_type),
 			url(_url.substr(0, _url.find("?"))),
+			queryString(_url.substr(_url.find("?") + 1)),
 			version("HTTP/1.1"),
 			header(HttpHeader(std::move(_attrs))),
 			body(std::move(_body))
@@ -799,6 +814,11 @@ namespace web
 			return this->url;
 		}
 
+		const std::string& GetQueryString() const
+		{
+			return this->queryString;
+		}
+		
 		const char* GetBody() const
 		{
 			return this->body.data();
@@ -2153,7 +2173,11 @@ namespace web
 
 									if(_httpServer->router->FindUrlCallback(request.GetType(), request.GetUrl()))
 									{
-										const UrlParam params(JsonObj::ParseFormData(std::string(request.GetBody(), request.GetBodyLen())));
+										UrlParam params;
+										if(request.GetType() == "POST")
+											params = std::move(JsonObj::ParseFormData(std::string(request.GetBody(), request.GetBodyLen())));
+										else if(request.GetType() == "GET")
+											params = std::move(JsonObj::ParseFormData(request.GetQueryString()));
 
 										try
 										{

@@ -25,6 +25,7 @@ TEST(HttpRequest, VaildContent)
 
 	EXPECT_EQ(request.GetType(), "GET");
 	EXPECT_EQ(request.GetUrl(), "/aaaaddddd/qq");
+	EXPECT_EQ(request.GetQueryString(), "test=123");
 	EXPECT_EQ(request.GetBodyLen(), 0);
 	EXPECT_EQ(request.GetHeader().GetHttpAttrs().size(), 14);
 }
@@ -53,6 +54,7 @@ TEST(HttpRequest, VaildContentNonQueryString)
 
 	EXPECT_EQ(request.GetType(), "GET");
 	EXPECT_EQ(request.GetUrl(), "/");
+	EXPECT_EQ(request.GetQueryString(), "");
 	EXPECT_EQ(request.GetBodyLen(), 0);
 	EXPECT_EQ(request.GetHeader().GetHttpAttrs().size(), 14);
 }
@@ -82,6 +84,7 @@ TEST(HttpRequest, VaildContent2)
 
 	EXPECT_EQ(request.GetType(), "GET");
 	EXPECT_EQ(request.GetUrl(), "/aaaaddddd/qq");
+	EXPECT_EQ(request.GetQueryString(), "test=123");
 	EXPECT_EQ(request.GetBodyLen(), 0);
 	EXPECT_EQ(request.GetHeader().GetHttpAttrs().size(), 14);
 }

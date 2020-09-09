@@ -11,6 +11,15 @@ TEST(JsonObj, ParseFormData)
 	EXPECT_EQ(result["name"].ToString(), "abc");
 }
 
+TEST(JsonObj, ParseFormData2)
+{
+	std::string formData = "token=123";
+
+	auto result = web::JsonObj::ParseFormData(std::move(formData));
+	
+	EXPECT_EQ(result["token"].ToString(), "123");
+}
+
 TEST(JsonObj, ParseFormDataArray)
 {
 	std::string formData = "age%5B%5D=30&age%5B%5D=40";
