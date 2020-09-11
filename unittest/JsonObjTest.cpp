@@ -76,3 +76,28 @@ TEST(JsonObj, ParseJsonObject)
 	EXPECT_EQ(result["cars"]["car2"].ToString(), "BMW");
 	EXPECT_EQ(result["cars"]["car3"].ToString(), "Volvo");
 }
+
+TEST(JsonObj, SetArray)
+{
+       	web::JsonObj res;
+       	
+       	for(int i = 0; i < 10; i++)
+       	{
+       		web::JsonObj temp;
+
+       		temp["roomId"] = "id";
+       		temp["name"] = "name";
+       		temp["ip"] = std::to_string(i);
+	
+       		res.Push(std::move(temp));
+       	}
+
+
+	EXPECT_EQ(res.GetArraySize(), 10);
+	for(int i = 0; i < 10; i++)
+	{
+		EXPECT_EQ(res[i]["roomId"].ToString(), "id");
+		EXPECT_EQ(res[i]["name"].ToString(), "name");
+		EXPECT_EQ(res[i]["ip"].ToString(), std::to_string(i));
+	}
+}
