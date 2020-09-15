@@ -1,11 +1,11 @@
 <html>
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 	<head>
-		<title>能看到吗?</title>
+		<title>HttpServer</title>
 	</head>
 
 	<body>
-		lar鸽看到不
+		测试提交	
 		<button onclick="PostTest();">
 			按钮
 		</button>
@@ -34,7 +34,8 @@
 		}
 
 		function PostTest() {
-			var ws = new WebSocket("wss://" + window.location.host + "/asd");
+			//https加密通讯时使用wss
+			var ws = new WebSocket("ws://" + window.location.host + "/asd");
 
 			//ws.binaryType = "arraybuffer"
 
