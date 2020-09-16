@@ -13,3 +13,7 @@
   https://github.com/openssl/openssl 用于加密Https通讯
   ## gtest
   https://github.com/google/googletest 谷歌的单元测试库，用于单元测试
+
+# 使用方法
+  该库只需要引用web.h即可，路径位于src/web.h
+  使用方法可参考src/main.cpp文件
