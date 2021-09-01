@@ -19,12 +19,12 @@ public:
 		std::cout << "a:" << _params["a"].ToString() << std::endl;
 		std::cout << "b:" << _params["b"].ToString() << std::endl;
 	
-		for(int i = 0; i < _params["c"]["test"].GetArraySize(); i++)
+		for(size_t i = 0; i < _params["c"]["test"].GetArraySize(); i++)
 		{
 			std::cout << "c[test][" << i << "] = " << _params["c"]["test"][i].ToString() << std::endl;
 		}
 		std::cout << "c[val] = " << _params["c"]["val"].ToString() << std::endl;
-		for(int i = 0; i < _params["d"].GetArraySize(); i++)
+		for(size_t i = 0; i < _params["d"].GetArraySize(); i++)
 		{
 			std::cout << "d[" << i << "] = " << _params["d"][i].ToString() << std::endl;
 		}
@@ -103,6 +103,7 @@ public:
 
 int main(int _argc, char* _argv[])
 {
+	
 	//Test Client
 	web::HttpClient client;
 
