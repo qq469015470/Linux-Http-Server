@@ -44,6 +44,7 @@ public:
 	{
 		std::cout << "a:" << _params["a"].ToString() << std::endl;
 		std::cout << "b:" << _params["b"].ToString() << std::endl;
+		std::cout << "c:" << _params["c"].ToString() << std::endl;
 
 		return web::Json("");
 	}

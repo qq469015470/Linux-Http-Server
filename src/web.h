@@ -881,6 +881,8 @@ namespace web
 				case 404:
 					return std::string("NOT FOUND");
 					break;
+				case 500:
+					return std::string("INTERNAL SERVER ERROR");
 				default:
 					return std::string("NONE SPEC");
 					break;
@@ -896,7 +898,7 @@ namespace web
 			
 			header = "HTTP/1.1 " + std::to_string(_stateCode) + " " + HttpResponse::GetSpec(_stateCode) + "\r\n";
 
-			if(_bodyLen > 0)
+			//if(_bodyLen > 0)
 				header += "Content-Length: " + std::to_string(_bodyLen) + "\r\n";
 
 			for(const auto& item: _httpAttrs)
@@ -1396,7 +1398,7 @@ namespace web
 			|| this->GetWebsocketObj(_url) != nullptr)
 				throw std::logic_error("websocket url had been register");
 
-			std::unique_ptr<IWebsocketeCallbackObj> temp(new WebsocketCallbackObj<_CONNTYPE, decltype(_connect), _MSGTYPE, decltype(_onMessage), _DISCONNTYPE, decltype(_disconnect)>(_connPtr, _connect, _msgPtr, _onMessage, _disConnPtr, _disconnect));
+			std::unique_ptr<IWebsocketeCallbackObj> temp(std::make_unique<WebsocketCallbackObj<_CONNTYPE, decltype(_connect), _MSGTYPE, decltype(_onMessage), _DISCONNTYPE, decltype(_disconnect)>>(_connPtr, _connect, _msgPtr, _onMessage, _disConnPtr, _disconnect));
 			this->websocketObjInfos.insert(std::pair<std::string, std::unique_ptr<IWebsocketeCallbackObj>>(_url.data(), std::move(temp)));
 		}
 
@@ -1737,11 +1739,11 @@ namespace web
 			std::unique_ptr<ISocket> sock(nullptr);
 			if(this->useSSL)
 			{
-				sock = std::unique_ptr<ISocket>(new SSLSocket(_sockfd, this->ctx.get()));
+				sock = std::unique_ptr<ISocket>(std::make_unique<SSLSocket>(_sockfd, this->ctx.get()));
 			}
 			else
 			{
-				sock = std::unique_ptr<ISocket>(new Socket(_sockfd));	
+				sock = std::unique_ptr<ISocket>(std::make_unique<Socket>(_sockfd));	
 			}
 
 			epoll_event ev;
@@ -1963,6 +1965,7 @@ namespace web
 							catch (std::runtime_error& _ex)
 							{
 								_httpServer->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), websocketMap.at(events[i].data.fd).get());
+								std::cout << std::endl;
 								std::cout << "websocke error:" << _ex.what() << std::endl;
 								std::cout << "url:" << websocketUrlMap.at(events[i].data.fd) << std::endl;
 								HttpServer::CloseSocket(epfd, &events[i]);
@@ -1999,7 +2002,7 @@ namespace web
 									std::cout << "回复websocket完毕" << std::endl;
 
 									
-									std::unique_ptr<Websocket> temp(new Websocket(socketMap.at(events[i].data.fd).get()));
+									std::unique_ptr<Websocket> temp(std::make_unique<Websocket>(socketMap.at(events[i].data.fd).get()));
 									
 									try 
 									{
@@ -2010,11 +2013,13 @@ namespace web
 									}
 									catch(std::runtime_error& _ex)
 									{
+										std::cout << std::endl;
 										std::cout << "websocket error:" << _ex.what() << std::endl;
 										std::cout << "url:" << request.GetUrl() << std::endl;
 									}
 									catch(std::logic_error& _ex)
 									{
+										std::cout << std::endl;
 										std::cout << "websocket error:" << _ex.what() << std::endl;
 										std::cout << "url:" << request.GetUrl() << std::endl;
 									}
@@ -2025,10 +2030,11 @@ namespace web
 									std::function<void(std::string_view, std::string_view, ISocket*)> logError = 
 									[this](std::string_view _url, std::string_view _error, ISocket* _socket)
 									{
+										std::cout << std::endl;
 										std::cout << "url:" << _url << std::endl;
 										std::cout << "error:" << _error << std::endl;
 
-										HttpResponse response(404, {}, nullptr, 0);
+										HttpResponse response(500, {}, _error.data(), _error.size());
 										                             
 										this->SendHttpResponse(_socket, std::move(response));
 									};
