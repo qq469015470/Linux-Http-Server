@@ -1495,13 +1495,6 @@ namespace web
 		}
 	};
 
-	namespace
-	{
-
-	
-		
-	}
-
 	class HttpServer
 	{
 	private:
