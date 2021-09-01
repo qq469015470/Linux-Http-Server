@@ -147,6 +147,8 @@ int main(int _argc, char* _argv[])
 
 	web::HttpServer server(std::move(test));
 
+	server.UseSSL(true);
+
 	server.Listen(ip, std::stoi(port));
 
 	while(true)

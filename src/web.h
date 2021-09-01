@@ -1504,6 +1504,8 @@ namespace web
 		std::unique_ptr<Router> router;
 
 		bool useSSL;
+		SSL_CTX_Ptr ctx;
+
 		bool listenSignal;
 		Socket serverSock;
 		int epfd;
@@ -1514,7 +1516,7 @@ namespace web
 		//一部分信息来自客户端握手的Sec-WebSocket-Keyt头字段：Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==。
 		//对于这个字段，服务端必须得到这个值并与"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"组合成一个字符串，
 		//经过SHA-1掩码，base64编码后在服务端的握手中返回。
-		static std::string GetWebsocketCode(std::string_view _code)
+		inline static std::string GetWebsocketCode(std::string_view _code)
 		{
 			const char* magicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -1555,7 +1557,7 @@ namespace web
 		//https://blog.csdn.net/zhusongziye/article/details/80316127
 		//https://blog.csdn.net/hnzwx888/article/details/84021754
 		//有可能tcp粘包，所以返回多个
-		static std::vector<WebsocketData> GetWebsocketMessage(ISocket* _sock)
+		static inline std::vector<WebsocketData> GetWebsocketMessage(ISocket* _sock)
 		{
 			//tcp粘包时第二个websocket包已读部分
 			std::vector<char> lastBuffer;
@@ -1698,7 +1700,7 @@ namespace web
 			return result;
 		}
 
-		static std::vector<char> GetRootFile(std::string_view _view)
+		static inline std::vector<char> GetRootFile(std::string_view _view)
 		{
 			const std::string root = "wwwroot/";
 
@@ -1723,7 +1725,7 @@ namespace web
 			return bytes;
 		}
 
-		inline std::unique_ptr<ISocket> HandleAccept(int _sockfd, int _epfd, SSL_CTX* _ctx)
+		inline std::unique_ptr<ISocket> HandleAccept(int _sockfd, int _epfd)
 		{
 			//设置超时时间
 			struct timeval timeout={3,0};//3s
@@ -1735,7 +1737,7 @@ namespace web
 			std::unique_ptr<ISocket> sock(nullptr);
 			if(this->useSSL)
 			{
-				sock = std::unique_ptr<ISocket>(new SSLSocket(_sockfd, _ctx));
+				sock = std::unique_ptr<ISocket>(new SSLSocket(_sockfd, this->ctx.get()));
 			}
 			else
 			{
@@ -1887,70 +1889,6 @@ namespace web
 				return;
 			}
 			
-			//openssl 资料
-			//https://blog.csdn.net/ck784101777/article/details/103833822
-			//https://www.csdn.net/gather_29/NtDagg3sNTAtYmxvZwO0O0OO0O0O.html
-			//生成证书示例
-			//[root@proxy conf]# openssl genrsa > cert.key                            #生成私钥,文件名必须与配置文件内相同
-			//[root@proxy conf]# openssl req -new -x509 -key cert.key > cert.pem     #生成证书,需要输入信息
-			//Country Name (2 letter code) [XX]: china                      #国家
-			//State or Province Name (full name) []:hunan                   #省份
-			//Locality Name (eg, city) [Default City]:changsha              #城市
-			//Organization Name (eg, company) [Default Company Ltd]:xxx     #公司名
-			//Organizational Unit Name (eg, section) []:xxx                 #单位名
-			//Common Name (eg, your name or your server's hostname) []:主机名            #主机名hostname查看
-			//Email Address []:xx@xx.com                                    #邮箱
-			
-			///支持ssl绑定证书
-			SSL_CTX_Ptr ctx(SSL_CTX_new(SSLv23_server_method()), SSL_CTX_free);
-			if(ctx == nullptr)
-			{
-				std::cout << "ctx is null" << std::endl;
-				return;
-			}
-		
-			if(this->useSSL)
-			{	
-				SSL_CTX_set_options(ctx.get(), SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE | SSL_OP_NO_SSLv2);
-				SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, NULL);
-				EC_KEY* ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-				if(ecdh == nullptr)
-				{
-					std::cout << "EC_KEY_new_by_curve_name failed!" << std::endl;
-					return;
-				}
-
-				if(SSL_CTX_set_tmp_ecdh(ctx.get(), ecdh) != 1)
-				{
-					std::cout << "SSL_CTX_set_tmp_ecdh failed!" << std::endl;
-					return;
-				}
-				//
-
-				const char* publicKey = "cert.pem";
-				const char* privateKey = "cert.key";
-
-				//配置证书公匙
-				if(SSL_CTX_use_certificate_file(ctx.get(), publicKey, SSL_FILETYPE_PEM) != 1)
-				{
-					std::cout << "SSL_CTX_use_cretificate_file failed!" << std::endl;
-					return;
-				}
-				//配置证书私钥
-				if(SSL_CTX_use_PrivateKey_file(ctx.get(), privateKey, SSL_FILETYPE_PEM) != 1)
-				{
-					std::cout << "SSL_CTX_use_PrivateKey_file failed!" << std::endl;
-					return;
-				}
-
-				//验证证书
-				if(SSL_CTX_check_private_key(ctx.get()) != 1)
-				{
-					std::cout << "SSL_CTX_check_private_key failed" << std::endl;
-					return;
-				}
-			}
-			
 			std::unordered_map<int, std::unique_ptr<ISocket>> socketMap;
 			std::unordered_map<int, std::unique_ptr<Websocket>> websocketMap;
 			std::unordered_map<int, std::string> websocketUrlMap;
@@ -1988,7 +1926,7 @@ namespace web
 
 						try
 						{
-							std::unique_ptr<ISocket> sock(HttpServer::HandleAccept(connfd, epfd, ctx.get()));
+							std::unique_ptr<ISocket> sock(HttpServer::HandleAccept(connfd, epfd));
 							socketMap.insert(std::pair<int, std::unique_ptr<ISocket>>(connfd, std::move(sock)));
 						}
 						catch(std::runtime_error& _ex)
@@ -2176,12 +2114,73 @@ namespace web
 			SSL_library_init();//SSL初始化
 			SSL_load_error_strings();//为ssl加载更友好的错误提示
 			OpenSSL_add_all_algorithms();
+
+			//openssl 资料
+			//https://blog.csdn.net/ck784101777/article/details/103833822
+			//https://www.csdn.net/gather_29/NtDagg3sNTAtYmxvZwO0O0OO0O0O.html
+			//生成证书示例
+			//[root@proxy conf]# openssl genrsa > cert.key                            #生成私钥,文件名必须与配置文件内相同
+			//[root@proxy conf]# openssl req -new -x509 -key cert.key > cert.pem     #生成证书,需要输入信息
+			//Country Name (2 letter code) [XX]: china                      #国家
+			//State or Province Name (full name) []:hunan                   #省份
+			//Locality Name (eg, city) [Default City]:changsha              #城市
+			//Organization Name (eg, company) [Default Company Ltd]:xxx     #公司名
+			//Organizational Unit Name (eg, section) []:xxx                 #单位名
+			//Common Name (eg, your name or your server's hostname) []:主机名            #主机名hostname查看
+			//Email Address []:xx@xx.com                                    #邮箱
+			
+			///支持ssl绑定证书
+			if(this->ctx == nullptr)
+			{
+				std::cout << "ctx is null" << std::endl;
+				return;
+			}
+	
+			SSL_CTX_set_options(this->ctx.get(), SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE | SSL_OP_NO_SSLv2);
+			SSL_CTX_set_verify(this->ctx.get(), SSL_VERIFY_NONE, NULL);
+			EC_KEY* ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+			if(ecdh == nullptr)
+			{
+				std::cout << "EC_KEY_new_by_curve_name failed!" << std::endl;
+				return;
+			}
+
+			if(SSL_CTX_set_tmp_ecdh(this->ctx.get(), ecdh) != 1)
+			{
+				std::cout << "SSL_CTX_set_tmp_ecdh failed!" << std::endl;
+				return;
+			}
+			//
+
+			const char* publicKey = "cert.pem";
+			const char* privateKey = "cert.key";
+
+			//配置证书公匙
+			if(SSL_CTX_use_certificate_file(this->ctx.get(), publicKey, SSL_FILETYPE_PEM) != 1)
+			{
+				std::cout << "SSL_CTX_use_cretificate_file failed!" << std::endl;
+				return;
+			}
+			//配置证书私钥
+			if(SSL_CTX_use_PrivateKey_file(this->ctx.get(), privateKey, SSL_FILETYPE_PEM) != 1)
+			{
+				std::cout << "SSL_CTX_use_PrivateKey_file failed!" << std::endl;
+				return;
+			}
+
+			//验证证书
+			if(SSL_CTX_check_private_key(this->ctx.get()) != 1)
+			{
+				std::cout << "SSL_CTX_check_private_key failed" << std::endl;
+				return;
+			}
 		}
 
 	public:
 		HttpServer(std::unique_ptr<Router>&& _router):
 			router(std::move(_router)),
 			useSSL(false),
+			ctx(SSL_CTX_new(SSLv23_server_method()), SSL_CTX_free),
 			listenSignal(false),
 			serverSock(AF_INET, SOCK_STREAM, IPPROTO_TCP),
 			epfd(-1)

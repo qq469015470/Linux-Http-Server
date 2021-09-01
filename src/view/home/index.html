@@ -7,7 +7,10 @@
 	<body>
 		测试提交	
 		<button onclick="PostTest();">
-			按钮
+			websocket按钮
+		</button>
+		<button onclick="PostTest(true);">
+			SSL websocket按钮
 		</button>
 		<button onClick="Test();">
 			post
@@ -33,9 +36,18 @@
 			});
 		}
 
-		function PostTest() {
+		function PostTest(_useSSL) {
+
+			var headUrl;
 			//https加密通讯时使用wss
-			var ws = new WebSocket("ws://" + window.location.host + "/asd");
+			if(_useSSL) {
+				headUrl = "wss://"
+			}
+			else {
+				headUrl = "ws://"
+			}
+
+			var ws = new WebSocket(headUrl + window.location.host + "/asd");
 
 			//ws.binaryType = "arraybuffer"
 
