@@ -1045,7 +1045,10 @@ namespace web
 			ssl(SSL_new(_ctx), SSL_free)
 		{
 			//绑定ssl
-                	SSL_set_fd(this->ssl.get(), this->sock.Get());
+                	if(SSL_set_fd(this->ssl.get(), this->sock.Get()) != 1)
+			{
+				throw std::runtime_error("SSL_set_fd failed!");
+			}
 
 			if(SSL_accept(this->ssl.get()) == -1)
 			{
@@ -1890,16 +1893,38 @@ namespace web
 				std::cout << "epoll control failed!" << std::endl;
 				return;
 			}
+
+			//socket上下文
+			struct SocketContext
+			{
+				bool isWebsocket;
+				bool isClose;
+				std::unique_ptr<ISocket> socket;
+				std::string websocketUrl;
+			};
 			
-			//std::unordered_map<int, std::unique_ptr<ISocket>> socketMap;
-			//std::unordered_map<int, std::unique_ptr<Websocket>> websocketMap;
-			std::unordered_map<int, std::string> websocketUrlMap;
+			std::unordered_map<int, SocketContext> socketContextMap;
 
 			while(this->listenSignal == true)
 			{
-				std::shared_ptr<std::array<epoll_event, max>> eventsPtr(std::make_shared<std::array<epoll_event, max>>());
-				std::array<epoll_event, max>& events = *eventsPtr;
-				const int nfds = epoll_wait(epfd, events.data(), max, -1);
+				std::array<epoll_event, max> events;
+				const int nfds = epoll_wait(epfd, events.data(), max, 1000);
+
+				//根据上下文清理已关闭的socket
+				std::vector<decltype(socketContextMap)::key_type> delKeys;
+				for(const auto& item: socketContextMap)
+				{
+					if(item.second.isClose == true)
+						delKeys.emplace_back(item.first);
+				}
+				for(const auto& item: delKeys)
+				{
+					socketContextMap.erase(item);
+				}
+				std::cout << "socketContextMap.size():" << socketContextMap.size() << std::endl; 
+
+
+				//delKeys.clear();
 
 				//防止eventfd触发信号时导致程序出现问题
 				//判断Server是否已经Stop
@@ -1931,113 +1956,96 @@ namespace web
 						try
 						{
 							std::unique_ptr<ISocket> sock(HttpServer::HandleAccept(connfd, epfd));
-							//socketMap.insert(std::pair<int, std::unique_ptr<ISocket>>(connfd, std::move(sock)));
+							
+							
+							SocketContext context{};
+							context.socket = std::move(sock);
+
+							socketContextMap.insert(std::pair<int, SocketContext>(connfd, std::move(context)));
 						}
 						catch(std::runtime_error& _ex)
 						{
-							std::cout << _ex.what() << std::endl;
+							close(connfd);
+							std::cout << "HandleAccept Fail:" << _ex.what() << std::endl;
 							ERR_print_errors_fp(stderr);
 						}
 					}
 					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
 					{
-						if(websocketUrlMap.find(events[i].data.fd) != websocketUrlMap.end())
-						{
+						auto& context = socketContextMap.at(events[i].data.fd);
 
-							std::unique_ptr<ISocket> socket;
-							if(this->useSSL)
+						std::thread th([this, &context](epoll_event event)
+						{
+							if(context.isWebsocket)
 							{
-								socket = std::make_unique<SSLSocket>(static_cast<int>(events[i].data.fd), this->ctx.get());
+								Websocket webSocket(context.socket.get());
+	
+								try
+								{
+									const std::vector<WebsocketData> infos = HttpServer::GetWebsocketMessage(context.socket.get());
+									for(const auto& info: infos)
+									{
+										//opcode 为8则表示断开连接
+										if(info.opcode == 8)
+										{
+											this->router->RunWebsocketDisconnectCallback(context.websocketUrl, &webSocket);
+											this->CloseSocket(epfd, &event);
+											context.isClose = true;
+										}
+										else
+										{
+											this->router->RunWebsocketOnMessageCallback(context.websocketUrl, &webSocket, info.payload.data(), info.payload.size());
+										}
+									}
+								}
+								catch (std::runtime_error& _ex)
+								{
+									this->router->RunWebsocketDisconnectCallback(context.websocketUrl, &webSocket);
+									std::cout << std::endl;
+									std::cout << "websocket error:" << _ex.what() << std::endl;
+									std::cout << "url:" << context.websocketUrl << std::endl;
+	
+									this->CloseSocket(epfd, &event);
+									context.isClose = true;
+								}
 							}
 							else
 							{
-								socket = std::make_unique<Socket>(static_cast<int>(events[i].data.fd));
-							}
-							Websocket webSocket(socket.get());
-
-							try
-							{
-								const std::vector<WebsocketData> infos = HttpServer::GetWebsocketMessage(socket.get());
-								for(const auto& info: infos)
-								{
-									//opcode 为8则表示断开连接
-									if(info.opcode == 8)
-									{
-										this->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), &webSocket);
-										HttpServer::CloseSocket(epfd, &events[i]);
-										//socketMap.erase(events[i].data.fd);
-										websocketUrlMap.erase(events[i].data.fd);
-										//websocketMap.erase(events[i].data.fd);
-									}
-									else
-									{
-										this->router->RunWebsocketOnMessageCallback(websocketUrlMap.at(events[i].data.fd), &webSocket, info.payload.data(), info.payload.size());
-									}
-								}
-							}
-							catch (std::runtime_error& _ex)
-							{
-								this->router->RunWebsocketDisconnectCallback(websocketUrlMap.at(events[i].data.fd), &webSocket);
-								std::cout << std::endl;
-								std::cout << "websocke error:" << _ex.what() << std::endl;
-								std::cout << "url:" << websocketUrlMap.at(events[i].data.fd) << std::endl;
-								HttpServer::CloseSocket(epfd, &events[i]);
-								//socketMap.erase(events[i].data.fd);
-								websocketUrlMap.erase(events[i].data.fd);
-								//websocketMap.erase(events[i].data.fd);
-							}
-						}
-						else
-						{
-							std::thread th([this, &websocketUrlMap](std::shared_ptr<std::array<epoll_event, max>> eventsPtr, int i)
-							{
-								epoll_event event(eventsPtr->at(i)); 
-
 								try
 								{
-									std::unique_ptr<ISocket> socket;
-									if(this->useSSL)
-									{
-										socket = std::make_unique<SSLSocket>(static_cast<int>(event.data.fd), this->ctx.get());
-									}
-									else
-									{
-										socket = std::make_unique<Socket>(static_cast<int>(event.data.fd));
-									}
-	
-									HttpRequest request = this->GetHttpRequest(socket.get());
-	
+									HttpRequest request = this->GetHttpRequest(context.socket.get());
+		
 									//检测是否是websocket
 									if(std::string(request.GetHeader().GetUpgrade()) == "websocket"
 										&& this->router->FindWebsocketCallback(request.GetUrl()))
 									{	
 										const std::string secWebsocketKey = request.GetHeader().GetSecWebSocketKey();
 										const std::string secWebsocketAccept = HttpServer::GetWebsocketCode(secWebsocketKey);
-	
+		
 										const std::vector<HttpAttr> httpAttrs =
 										{
 											HttpAttr("Upgrade", "websocket"),
 											HttpAttr("Connection", "Upgrade"),
 											HttpAttr("Sec-WebSocket-Accept", secWebsocketAccept),
 										};
-	
-	
+		
+		
 										HttpResponse response(101, httpAttrs, nullptr, 0);
-	
-										this->SendHttpResponse(socket.get(), std::move(response));
-	
+		
+										this->SendHttpResponse(context.socket.get(), std::move(response));
+		
 										std::cout << "回复websocket完毕" << std::endl;
-	
+		
 										
-										std::unique_ptr<Websocket> temp(std::make_unique<Websocket>(socket.get()));
+										std::unique_ptr<Websocket> temp(std::make_unique<Websocket>(context.socket.get()));
 										
 										try 
 										{
 											this->router->RunWebsocketConnectCallback(request.GetUrl(), temp.get(), request.GetHeader());
 	
-											//websocketMap.insert(std::pair<int, std::unique_ptr<Websocket>>(static_cast<int>(event.data.fd), std::move(temp)));
-											websocketUrlMap.insert(std::pair<int, std::string>(static_cast<int>(event.data.fd), request.GetUrl()));
+											context.isWebsocket = true;
+											context.websocketUrl = request.GetUrl();
 										}
 										catch(std::runtime_error& _ex)
 										{
@@ -2054,7 +2062,7 @@ namespace web
 									}
 									else
 									{
-
+	
 										//错误回调
 										std::function<void(std::string_view, std::string_view, ISocket*)> logError = 
 										[this](std::string_view _url, std::string_view _error, ISocket* _socket)
@@ -2062,13 +2070,13 @@ namespace web
 											std::cout << std::endl;
 											std::cout << "url:" << _url << std::endl;
 											std::cout << "error:" << _error << std::endl;
-	
+		
 											HttpResponse response(500, {}, _error.data(), _error.size());
 											                             
 											this->SendHttpResponse(_socket, std::move(response));
 										};
-	
-	
+		
+		
 										if(this->router->FindUrlCallback(request.GetType(), request.GetUrl()))
 										{
 											UrlParam params;
@@ -2076,21 +2084,21 @@ namespace web
 												params = std::move(JsonObj::ParseFormData(std::string(request.GetBody(), request.GetBodyLen())));
 											else if(request.GetType() == "GET")
 												params = std::move(JsonObj::ParseFormData(request.GetQueryString()));
-	
+		
 											try
 											{
 												HttpResponse response = this->router->RunCallback(request.GetType(), request.GetUrl(), params, request.GetHeader());
-												this->SendHttpResponse(socket.get(), std::move(response));
+												this->SendHttpResponse(context.socket.get(), std::move(response));
 											}
 											catch(std::out_of_range& _ex)
 											{
-												logError(request.GetUrl(), _ex.what(), socket.get());	
+												logError(request.GetUrl(), _ex.what(), context.socket.get());	
 											}
 											catch(std::runtime_error& _ex)
 											{
-												logError(request.GetUrl(), _ex.what(), socket.get());	
+												logError(request.GetUrl(), _ex.what(), context.socket.get());	
 											}
-	
+		
 										}
 										else if(request.GetType() == "GET")
 										{
@@ -2101,41 +2109,42 @@ namespace web
 												{
 													{"Cache-Control", "no-store"}
 												};
-	
+		
 												HttpResponse response(200, std::move(attrs), body.data(), body.size());
 												                             
-												this->SendHttpResponse(socket.get(), std::move(response));
+												this->SendHttpResponse(context.socket.get(), std::move(response));
 											}
 											catch(std::runtime_error& _ex)
 											{
-												logError(request.GetUrl(), _ex.what(), socket.get());	
+												logError(request.GetUrl(), _ex.what(), context.socket.get());	
 											}
 										}
 										else
 										{
 											HttpResponse response(404, {}, nullptr, 0);
-	                                                        			                             
-	                                                        			this->SendHttpResponse(socket.get(), std::move(response));
+		                                                			                             
+		                                                			this->SendHttpResponse(context.socket.get(), std::move(response));
 										}
 										
 										if(request.GetHeader().GetConnection() != std::string("keep-alive"))
 										{
-											HttpServer::CloseSocket(epfd, const_cast<epoll_event*>(&event));
-											//socketMap.erase(events[i].data.fd);
+											this->CloseSocket(epfd, const_cast<epoll_event*>(&event));
+											context.isClose = true;
 										}	
 									}
-	
+		
 								}
 								catch(std::runtime_error& _ex)
 								{
 									std::cout << _ex.what() << std::endl;
-									HttpServer::CloseSocket(epfd, const_cast<epoll_event*>(&event));
-									//socketMap.erase(events[i].data.fd);
+									this->CloseSocket(epfd, const_cast<epoll_event*>(&event));
+									context.isClose = true;
 								}
-							}, eventsPtr, i);
+	
+							}
+						}, events[i]);
 
-							th.detach();
-						}
+						th.detach();
 					}
 					else
 					{

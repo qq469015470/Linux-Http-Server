@@ -2,6 +2,9 @@
 
 #include "web.h"
 
+#include <thread>
+#include <chrono>
+
 class TestCall
 {
 public:
@@ -44,6 +47,9 @@ public:
 	{
 		std::cout << "a:" << _params["a"].ToString() << std::endl;
 		std::cout << "b:" << _params["b"].ToString() << std::endl;
+
+		std::this_thread::sleep_for(std::chrono::seconds(10));
+		
 		std::cout << "c:" << _params["c"].ToString() << std::endl;
 
 		return web::Json("");
