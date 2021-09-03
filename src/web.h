@@ -24,6 +24,8 @@
 #include <thread>
 #include <functional>
 #include <sys/eventfd.h>
+#include <fcntl.h>
+#include <chrono>
 
 #include <openssl/ssl.h>
 #include <openssl/sha.h>
@@ -980,7 +982,7 @@ namespace web
 
 		~Socket()
 		{
-			//close(this->sockfd);
+			close(this->sockfd);
 		}
 
 		virtual int Bind(const sockaddr* _addr, socklen_t _addrlen) override
@@ -1049,6 +1051,8 @@ namespace web
 			{
 				throw std::runtime_error("SSL_set_fd failed!");
 			}
+
+			//SSL_set_connect_state(this->ssl.get()); 设置为非阻塞?
 
 			if(SSL_accept(this->ssl.get()) == -1)
 			{
@@ -1732,12 +1736,17 @@ namespace web
 
 		inline std::unique_ptr<ISocket> HandleAccept(int _sockfd, int _epfd)
 		{
-			//设置超时时间
-			struct timeval timeout={3,0};//3s
-    			if(setsockopt(_sockfd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == -1)
-				std::cout << "setsoockopt failed!" << std::endl;
-    			if(setsockopt(_sockfd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == -1)
-				std::cout << "setsoockopt failed!" << std::endl;
+			//设置超时时间(非阻塞就不用设置了,似乎使用了epoll设置了也无效?)
+			//struct timeval timeout={3,0};//3s
+    			//if(setsockopt(_sockfd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == -1)
+			//	std::cout << "setsoockopt failed!" << std::endl;
+    			//if(setsockopt(_sockfd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == -1)
+			//	std::cout << "setsoockopt failed!" << std::endl;
+
+			{
+				const int flags = fcntl(_sockfd,F_GETFL, 0);
+      				fcntl(_sockfd, F_SETFL, flags &~ O_NONBLOCK);    //设置成阻塞模式；
+			}
 		
 			std::unique_ptr<ISocket> sock(nullptr);
 			if(this->useSSL)
@@ -1749,20 +1758,28 @@ namespace web
 				sock = std::make_unique<Socket>(_sockfd);
 			}
 
+			{
+				const int flags = fcntl(_sockfd, F_GETFL, 0);                       //获取文件的flags值。
+      				fcntl(_sockfd, F_SETFL, flags | O_NONBLOCK);   //设置成非阻塞模式；
+			}
+
 			epoll_event ev;
 
 			ev.data.fd = sock->Get();
-			ev.events = EPOLLIN | EPOLLET;
+			ev.events = EPOLLIN | EPOLLET;//边缘触发模式
 			epoll_ctl(_epfd, EPOLL_CTL_ADD, sock->Get(), &ev);
 		
 			return sock;
 		}
 
-		static inline void CloseSocket(int _epfd, epoll_event* _ev)
+		static inline void CloseSocket(int _epfd, int _sockfd)
 		{
-			std::cout << "CloseSocket:" << _ev->data.fd << std::endl;
-			close(_ev->data.fd);
-			epoll_ctl(_epfd, EPOLL_CTL_DEL, _ev->data.fd, _ev);
+			std::cout << "CloseSocket:" << _sockfd << std::endl;
+			if(epoll_ctl(_epfd, EPOLL_CTL_DEL, _sockfd, NULL) == -1) //EPOLL_CTL_DEL 第四个参数 event 是没用的
+			{
+				//throw std::runtime_error("CloseSocket EPOLL_CTL_DEL Error");
+			}
+			close(_sockfd);
 		}
 
 		static inline HttpRequest GetHttpRequest(ISocket* _sock)
@@ -1887,7 +1904,7 @@ namespace web
 
 			epoll_event ev;	
 			ev.data.fd = this->serverSock.Get();
-			ev.events = EPOLLIN | EPOLLET;
+			ev.events = EPOLLIN;//LT水平触发模式(默认可以不设置)
 			if(epoll_ctl(epfd, EPOLL_CTL_ADD, this->serverSock.Get(), &ev) == -1)
 			{
 				std::cout << "epoll control failed!" << std::endl;
@@ -1899,6 +1916,8 @@ namespace web
 			{
 				bool isWebsocket;
 				bool isClose;
+				bool onBusiness;
+				std::chrono::steady_clock::time_point lastRecvTime;
 				std::unique_ptr<ISocket> socket;
 				std::string websocketUrl;
 			};
@@ -1912,10 +1931,25 @@ namespace web
 
 				//根据上下文清理已关闭的socket
 				std::vector<decltype(socketContextMap)::key_type> delKeys;
-				for(const auto& item: socketContextMap)
+				const auto nowTime = std::chrono::steady_clock::now();
+				for(auto& item: socketContextMap)
 				{
-					if(item.second.isClose == true)
-						delKeys.emplace_back(item.first);
+					//超时
+					if(std::chrono::duration_cast<std::chrono::milliseconds>(nowTime - item.second.lastRecvTime).count() >= 3000.0f
+					&& !item.second.isWebsocket)
+					{
+						std::cout << "socket " << item.second.socket->Get() << " timeout" << std::endl;
+						this->CloseSocket(epfd, item.second.socket->Get());
+						item.second.isClose = true;
+					}
+					//业务逻辑还在执行先不删除,因为上下文还在引用变量
+					if(!item.second.onBusiness)
+					{
+						if(item.second.isClose)
+						{
+							delKeys.emplace_back(item.first);
+						}
+					}
 				}
 				for(const auto& item: delKeys)
 				{
@@ -1955,17 +1989,19 @@ namespace web
 
 						try
 						{
-							std::unique_ptr<ISocket> sock(HttpServer::HandleAccept(connfd, epfd));
+							std::unique_ptr<ISocket> sock(this->HandleAccept(connfd, epfd));
 							
 							
 							SocketContext context{};
 							context.socket = std::move(sock);
+							context.lastRecvTime = std::chrono::steady_clock::now();
+
+							//assert(socketContextMap.find(connfd) == socketContextMap.end());
 
 							socketContextMap.insert(std::pair<int, SocketContext>(connfd, std::move(context)));
 						}
 						catch(std::runtime_error& _ex)
 						{
-							close(connfd);
 							std::cout << "HandleAccept Fail:" << _ex.what() << std::endl;
 							ERR_print_errors_fp(stderr);
 						}
@@ -1973,9 +2009,15 @@ namespace web
 					//是客户端则返回信息
 					else if(events[i].events & EPOLLIN)
 					{
-						auto& context = socketContextMap.at(events[i].data.fd);
+						std::cout << "epoll have read" << std::endl;
 
-						std::thread th([this, &context](epoll_event event)
+						auto& context = socketContextMap.at(events[i].data.fd);
+						context.lastRecvTime = std::chrono::steady_clock::now();
+
+						assert(context.onBusiness == false);
+						context.onBusiness = true;
+
+						std::thread th([this, &context]()
 						{
 							if(context.isWebsocket)
 							{
@@ -1990,7 +2032,7 @@ namespace web
 										if(info.opcode == 8)
 										{
 											this->router->RunWebsocketDisconnectCallback(context.websocketUrl, &webSocket);
-											this->CloseSocket(epfd, &event);
+											this->CloseSocket(epfd, context.socket->Get());
 											context.isClose = true;
 										}
 										else
@@ -2006,7 +2048,7 @@ namespace web
 									std::cout << "websocket error:" << _ex.what() << std::endl;
 									std::cout << "url:" << context.websocketUrl << std::endl;
 	
-									this->CloseSocket(epfd, &event);
+									this->CloseSocket(epfd, context.socket->Get());
 									context.isClose = true;
 								}
 							}
@@ -2128,7 +2170,7 @@ namespace web
 										
 										if(request.GetHeader().GetConnection() != std::string("keep-alive"))
 										{
-											this->CloseSocket(epfd, const_cast<epoll_event*>(&event));
+											this->CloseSocket(epfd, context.socket->Get());
 											context.isClose = true;
 										}	
 									}
@@ -2137,12 +2179,14 @@ namespace web
 								catch(std::runtime_error& _ex)
 								{
 									std::cout << _ex.what() << std::endl;
-									this->CloseSocket(epfd, const_cast<epoll_event*>(&event));
+									this->CloseSocket(epfd, context.socket->Get());
 									context.isClose = true;
 								}
 	
 							}
-						}, events[i]);
+
+							context.onBusiness = false;
+						});
 
 						th.detach();
 					}
@@ -2233,6 +2277,10 @@ namespace web
 			serverSock(AF_INET, SOCK_STREAM, IPPROTO_TCP),
 			epfd(-1)
 		{
+			//设置listenSock非阻塞
+			const int flags = fcntl(this->serverSock.Get(), F_GETFL, 0);                       //获取文件的flags值。
+      			fcntl(this->serverSock.Get(), F_SETFL, flags | O_NONBLOCK);   //设置成非阻塞模式；
+
 			this->InitSSL();
 
 			//struct sigaction sh;
