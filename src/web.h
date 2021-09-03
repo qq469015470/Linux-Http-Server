@@ -1740,10 +1740,12 @@ namespace web
 			if(file.is_open())
 			{
 				const std::vector<char> body =	HttpServer::GetRootFile(file);
+				file.close();
 
 				std::vector<HttpAttr> attrs = 
 				{
-					{"Cache-Control", "no-store"}
+					//{"Cache-Control", "no-store"}
+					{"Cache-Control", "max-age=315360000"}
 				};
 		
 				return HttpResponse(200, std::move(attrs), body.data(), body.size());
@@ -1755,7 +1757,6 @@ namespace web
 				return HttpResponse(404, {}, notFoundStr.data(), notFoundStr.size());
 			}	
 
-			file.close();
 		}
 
 		inline std::unique_ptr<ISocket> HandleAccept(int _sockfd, int _epfd)
