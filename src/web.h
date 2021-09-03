@@ -2146,7 +2146,7 @@ namespace web
 										{
 											try
 											{
-												const std::vector<char> body = HttpServer::GetRootFile(request.GetUrl());
+												const std::vector<char> body = this->GetRootFile(request.GetUrl());
 												std::vector<HttpAttr> attrs = 
 												{
 													{"Cache-Control", "no-store"}
