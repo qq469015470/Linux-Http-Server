@@ -1710,29 +1710,52 @@ namespace web
 			return result;
 		}
 
-		static inline std::vector<char> GetRootFile(std::string_view _view)
+		static inline std::vector<char> GetRootFile(std::ifstream& _file)
+		{
+			std::vector<char> bytes;
+
+			if(_file.is_open())
+			{
+				_file.seekg(0, std::ios::end);
+				bytes.resize(_file.tellg());
+				_file.seekg(0, std::ios::beg);
+	
+				_file.read(bytes.data(), bytes.size());
+			}
+			else
+			{
+				throw std::runtime_error("file not open");
+			}
+
+
+			return bytes;
+		}
+
+		static inline HttpResponse GetRootFileResponse(std::string_view _view)
 		{
 			const std::string root = "wwwroot/";
 
 			std::ifstream file(root + _view.data());
-			std::vector<char> bytes;
 
 			if(file.is_open())
 			{
-				file.seekg(0, std::ios::end);
-				bytes.resize(file.tellg());
-				file.seekg(0, std::ios::beg);
-	
-				file.read(bytes.data(), bytes.size());
+				const std::vector<char> body =	HttpServer::GetRootFile(file);
+
+				std::vector<HttpAttr> attrs = 
+				{
+					{"Cache-Control", "no-store"}
+				};
+		
+				return HttpResponse(200, std::move(attrs), body.data(), body.size());
 			}
 			else
 			{
-				throw std::runtime_error("could not find wwwroot file");
-			}
+				const std::string notFoundStr = "could not find wwwroot file";
+
+				return HttpResponse(404, {}, notFoundStr.data(), notFoundStr.size());
+			}	
 
 			file.close();
-
-			return bytes;
 		}
 
 		inline std::unique_ptr<ISocket> HandleAccept(int _sockfd, int _epfd)
@@ -2154,14 +2177,8 @@ namespace web
 										{
 											try
 											{
-												const std::vector<char> body = this->GetRootFile(request.GetUrl());
-												std::vector<HttpAttr> attrs = 
-												{
-													{"Cache-Control", "no-store"}
-												};
-		
-												HttpResponse response(200, std::move(attrs), body.data(), body.size());
-												                             
+												HttpResponse response = this->GetRootFileResponse(request.GetUrl());
+
 												this->SendHttpResponse(context->socket.get(), std::move(response));
 											}
 											catch(std::runtime_error& _ex)
@@ -2565,7 +2582,7 @@ namespace web
 
 		file.close();
 
-		return HttpResponse(stateCode, {}, body.data(), body.size());
+		return HttpResponse(stateCode, {{"Content-Type", "text/html; charset=utf-8"}}, body.data(), body.size());
 	}
 
 	HttpResponse Json(const JsonObj& _json)
