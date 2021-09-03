@@ -26,6 +26,7 @@
 #include <sys/eventfd.h>
 #include <fcntl.h>
 #include <chrono>
+#include <atomic>
 
 #include <openssl/ssl.h>
 #include <openssl/sha.h>
@@ -1777,7 +1778,7 @@ namespace web
 			std::cout << "CloseSocket:" << _sockfd << std::endl;
 			if(epoll_ctl(_epfd, EPOLL_CTL_DEL, _sockfd, NULL) == -1) //EPOLL_CTL_DEL 第四个参数 event 是没用的
 			{
-				//throw std::runtime_error("CloseSocket EPOLL_CTL_DEL Error");
+				throw std::runtime_error("CloseSocket EPOLL_CTL_DEL Error");
 			}
 			close(_sockfd);
 		}
@@ -1916,18 +1917,17 @@ namespace web
 			{
 				bool isWebsocket;
 				bool isClose;
-				bool onBusiness;
+				std::atomic<int> businessRef;
 				std::chrono::steady_clock::time_point lastRecvTime;
 				std::unique_ptr<ISocket> socket;
 				std::string websocketUrl;
 			};
 			
-			std::unordered_map<int, SocketContext> socketContextMap;
+			std::unordered_map<int, std::unique_ptr<SocketContext>> socketContextMap;
 
 			while(this->listenSignal == true)
 			{
-				std::array<epoll_event, max> events;
-				const int nfds = epoll_wait(epfd, events.data(), max, 1000);
+				std::cout << "loop start===========================================" << std::endl;
 
 				//根据上下文清理已关闭的socket
 				std::vector<decltype(socketContextMap)::key_type> delKeys;
@@ -1935,17 +1935,18 @@ namespace web
 				for(auto& item: socketContextMap)
 				{
 					//超时
-					if(std::chrono::duration_cast<std::chrono::milliseconds>(nowTime - item.second.lastRecvTime).count() >= 3000.0f
-					&& !item.second.isWebsocket)
+					if(std::chrono::duration_cast<std::chrono::seconds>(nowTime - item.second->lastRecvTime).count() >= 3.0f
+					&& !item.second->isWebsocket && item.second->businessRef == 0)
 					{
-						std::cout << "socket " << item.second.socket->Get() << " timeout" << std::endl;
-						this->CloseSocket(epfd, item.second.socket->Get());
-						item.second.isClose = true;
+						std::cout << "socket " << item.second->socket->Get() << " timeout" << std::endl;
+						//shutdown(item.second->socket->Get(), SHUT_RDWR);
+						//this->CloseSocket(epfd, item.second->socket->Get());
+						item.second->isClose = true;
 					}
 					//业务逻辑还在执行先不删除,因为上下文还在引用变量
-					if(!item.second.onBusiness)
+					if(item.second->businessRef == 0)
 					{
-						if(item.second.isClose)
+						if(item.second->isClose)
 						{
 							delKeys.emplace_back(item.first);
 						}
@@ -1953,12 +1954,16 @@ namespace web
 				}
 				for(const auto& item: delKeys)
 				{
+					this->CloseSocket(epfd, socketContextMap.at(item)->socket->Get());
 					socketContextMap.erase(item);
 				}
 				std::cout << "socketContextMap.size():" << socketContextMap.size() << std::endl; 
 
-
 				//delKeys.clear();
+				
+				std::array<epoll_event, max> events;
+				const int nfds = epoll_wait(epfd, events.data(), max, 1000);
+				
 
 				//防止eventfd触发信号时导致程序出现问题
 				//判断Server是否已经Stop
@@ -1989,16 +1994,19 @@ namespace web
 
 						try
 						{
+
+							assert(socketContextMap.find(connfd) == socketContextMap.end());
+
 							std::unique_ptr<ISocket> sock(this->HandleAccept(connfd, epfd));
 							
-							
-							SocketContext context{};
-							context.socket = std::move(sock);
-							context.lastRecvTime = std::chrono::steady_clock::now();
+							std::unique_ptr<SocketContext> context(std::make_unique<SocketContext>());
+							context->socket = std::move(sock);
+							context->lastRecvTime = std::chrono::steady_clock::now();
 
-							//assert(socketContextMap.find(connfd) == socketContextMap.end());
 
-							socketContextMap.insert(std::pair<int, SocketContext>(connfd, std::move(context)));
+							auto result = socketContextMap.insert(std::pair<int, std::unique_ptr<SocketContext>>(connfd, std::move(context)));
+
+							assert(result.second == true);
 						}
 						catch(std::runtime_error& _ex)
 						{
@@ -2012,51 +2020,51 @@ namespace web
 						std::cout << "epoll have read" << std::endl;
 
 						auto& context = socketContextMap.at(events[i].data.fd);
-						context.lastRecvTime = std::chrono::steady_clock::now();
+						context->lastRecvTime = std::chrono::steady_clock::now();
 
-						assert(context.onBusiness == false);
-						context.onBusiness = true;
+						//assert(context->onBusiness == false);
+						context->businessRef++;
 
 						std::thread th([this, &context]()
 						{
-							if(context.isWebsocket)
+							if(context->isWebsocket)
 							{
-								Websocket webSocket(context.socket.get());
+								Websocket webSocket(context->socket.get());
 	
 								try
 								{
-									const std::vector<WebsocketData> infos = HttpServer::GetWebsocketMessage(context.socket.get());
+									const std::vector<WebsocketData> infos = this->GetWebsocketMessage(context->socket.get());
 									for(const auto& info: infos)
 									{
 										//opcode 为8则表示断开连接
 										if(info.opcode == 8)
 										{
-											this->router->RunWebsocketDisconnectCallback(context.websocketUrl, &webSocket);
-											this->CloseSocket(epfd, context.socket->Get());
-											context.isClose = true;
+											this->router->RunWebsocketDisconnectCallback(context->websocketUrl, &webSocket);
+											//this->CloseSocket(epfd, context->socket->Get());
+											context->isClose = true;
 										}
 										else
 										{
-											this->router->RunWebsocketOnMessageCallback(context.websocketUrl, &webSocket, info.payload.data(), info.payload.size());
+											this->router->RunWebsocketOnMessageCallback(context->websocketUrl, &webSocket, info.payload.data(), info.payload.size());
 										}
 									}
 								}
 								catch (std::runtime_error& _ex)
 								{
-									this->router->RunWebsocketDisconnectCallback(context.websocketUrl, &webSocket);
+									this->router->RunWebsocketDisconnectCallback(context->websocketUrl, &webSocket);
 									std::cout << std::endl;
 									std::cout << "websocket error:" << _ex.what() << std::endl;
-									std::cout << "url:" << context.websocketUrl << std::endl;
+									std::cout << "url:" << context->websocketUrl << std::endl;
 	
-									this->CloseSocket(epfd, context.socket->Get());
-									context.isClose = true;
+									//this->CloseSocket(epfd, context->socket->Get());
+									context->isClose = true;
 								}
 							}
 							else
 							{
 								try
 								{
-									HttpRequest request = this->GetHttpRequest(context.socket.get());
+									HttpRequest request = this->GetHttpRequest(context->socket.get());
 		
 									//检测是否是websocket
 									if(std::string(request.GetHeader().GetUpgrade()) == "websocket"
@@ -2075,19 +2083,19 @@ namespace web
 		
 										HttpResponse response(101, httpAttrs, nullptr, 0);
 		
-										this->SendHttpResponse(context.socket.get(), std::move(response));
+										this->SendHttpResponse(context->socket.get(), std::move(response));
 		
 										std::cout << "回复websocket完毕" << std::endl;
 		
 										
-										std::unique_ptr<Websocket> temp(std::make_unique<Websocket>(context.socket.get()));
+										std::unique_ptr<Websocket> temp(std::make_unique<Websocket>(context->socket.get()));
 										
 										try 
 										{
 											this->router->RunWebsocketConnectCallback(request.GetUrl(), temp.get(), request.GetHeader());
 	
-											context.isWebsocket = true;
-											context.websocketUrl = request.GetUrl();
+											context->isWebsocket = true;
+											context->websocketUrl = request.GetUrl();
 										}
 										catch(std::runtime_error& _ex)
 										{
@@ -2130,15 +2138,15 @@ namespace web
 											try
 											{
 												HttpResponse response = this->router->RunCallback(request.GetType(), request.GetUrl(), params, request.GetHeader());
-												this->SendHttpResponse(context.socket.get(), std::move(response));
+												this->SendHttpResponse(context->socket.get(), std::move(response));
 											}
 											catch(std::out_of_range& _ex)
 											{
-												logError(request.GetUrl(), _ex.what(), context.socket.get());	
+												logError(request.GetUrl(), _ex.what(), context->socket.get());	
 											}
 											catch(std::runtime_error& _ex)
 											{
-												logError(request.GetUrl(), _ex.what(), context.socket.get());	
+												logError(request.GetUrl(), _ex.what(), context->socket.get());	
 											}
 		
 										}
@@ -2154,24 +2162,24 @@ namespace web
 		
 												HttpResponse response(200, std::move(attrs), body.data(), body.size());
 												                             
-												this->SendHttpResponse(context.socket.get(), std::move(response));
+												this->SendHttpResponse(context->socket.get(), std::move(response));
 											}
 											catch(std::runtime_error& _ex)
 											{
-												logError(request.GetUrl(), _ex.what(), context.socket.get());	
+												logError(request.GetUrl(), _ex.what(), context->socket.get());	
 											}
 										}
 										else
 										{
 											HttpResponse response(404, {}, nullptr, 0);
 		                                                			                             
-		                                                			this->SendHttpResponse(context.socket.get(), std::move(response));
+		                                                			this->SendHttpResponse(context->socket.get(), std::move(response));
 										}
 										
 										if(request.GetHeader().GetConnection() != std::string("keep-alive"))
 										{
-											this->CloseSocket(epfd, context.socket->Get());
-											context.isClose = true;
+											//this->CloseSocket(epfd, context->socket->Get());
+											context->isClose = true;
 										}	
 									}
 		
@@ -2179,13 +2187,13 @@ namespace web
 								catch(std::runtime_error& _ex)
 								{
 									std::cout << _ex.what() << std::endl;
-									this->CloseSocket(epfd, context.socket->Get());
-									context.isClose = true;
+									//this->CloseSocket(epfd, context->socket->Get());
+									context->isClose = true;
 								}
 	
 							}
 
-							context.onBusiness = false;
+							context->businessRef--;
 						});
 
 						th.detach();
