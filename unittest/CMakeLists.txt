@@ -28,6 +28,7 @@ target_link_libraries(UnitTest PRIVATE ${CRYPTO})
 target_link_libraries(UnitTest PRIVATE dl)
 target_link_libraries(UnitTest PRIVATE gtest)
 target_link_libraries(UnitTest PRIVATE pthread)
+target_link_libraries(UnitTest PRIVATE mysqlclient)
 
 file(COPY ${SRC_DIR}/cert.key DESTINATION ${EXECUTABLE_OUTPUT_PATH})
 file(COPY ${SRC_DIR}/cert.pem DESTINATION ${EXECUTABLE_OUTPUT_PATH})
