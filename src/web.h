@@ -2590,7 +2590,8 @@ namespace web
 	{
 		std::vector<HttpAttr> attrs = 
 		{
-			{"Access-Control-Allow-Origin", "*"}
+			{"Access-Control-Allow-Origin", "*"},
+			{"Content-Type", "application/json; charset=utf8"}
 		};
 
 		std::string res(_json.ToJson());
@@ -2602,7 +2603,8 @@ namespace web
 	{
 		std::vector<HttpAttr> attrs = 
 		{
-			{"Access-Control-Allow-Origin", "*"}
+			{"Access-Control-Allow-Origin", "*"},
+			{"Content-Type", "application/json; charset=utf8"}
 		};
 
 		return HttpResponse(200, std::move(attrs), _str.data(), _str.size());
