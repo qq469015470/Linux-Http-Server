@@ -2,11 +2,15 @@
 
 #include "web.h"
 
+#include "WareHouseService.hpp"
+
 #include <thread>
 #include <chrono>
 
 class TestCall
 {
+private:
+
 public:
 	web::HttpResponse Home(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
@@ -108,6 +112,75 @@ public:
 	}
 };
 
+class HomeController
+{
+private:
+	WareHouseService wareHouseService; 
+
+public:
+	web::HttpResponse Index(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		return web::View("home/vue.html");
+	}
+
+
+};
+
+enum JsonDataCode: int
+{
+	Success = 0,
+	Error = -1,
+};
+
+web::HttpResponse JsonData(JsonDataCode _code, const web::JsonObj* const _data, std::string_view _msg)
+{
+	web::JsonObj temp;
+
+	temp["code"] = static_cast<int>(_code);
+
+	if(_data != nullptr)
+		temp["data"] = web::JsonObj::ParseJson(_data->ToJson());
+	else
+		temp["data"].SetNull();
+
+	temp["msg"] = _msg.data();
+
+	return web::Json(temp);
+}
+
+class WareHouseController
+{
+private:
+
+public:
+	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		WareHouseService wareHouseService;
+
+		std::vector<WareHouse> warehouses = wareHouseService.GetWareHouses();
+
+		web::JsonObj result;
+		for(const auto& item: warehouses)
+		{
+			web::JsonObj temp;
+
+			temp["id"] = std::to_string(item.id);
+			temp["name"] = item.name;
+
+			result.Push(std::move(temp));
+		}
+
+		return web::Json(result);
+	}
+
+	web::HttpResponse Add(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		WareHouseService wareHouseService;
+
+		return JsonData(JsonDataCode::Error, nullptr, "1112");
+	}
+};
+
 int main(int _argc, char* _argv[])
 {
 	
@@ -144,8 +217,14 @@ int main(int _argc, char* _argv[])
 
 	static TestCall temp;
 	static Chat chat;
+	static HomeController homeController;
+	static WareHouseController wareHouseController;
 
-	test->RegisterUrl("GET", "/", &TestCall::Home, &temp);
+	test->RegisterUrl("GET", "/", &HomeController::Index, &homeController);
+	test->RegisterUrl("GET", "/WareHouse/Get", &WareHouseController::Get, &wareHouseController);
+	test->RegisterUrl("POST", "/WareHouse/Add", &WareHouseController::Add, &wareHouseController);
+
+
 	test->RegisterUrl("POST", "/test/post", &TestCall::TestPost, &temp);
 	test->RegisterUrl("POST", "/test/number", &TestCall::TestNumber, &temp);
 	test->RegisterUrl("GET", "/Test", &TestCall::Test, &temp);

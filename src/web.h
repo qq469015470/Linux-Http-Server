@@ -2131,7 +2131,7 @@ namespace web
 				for(auto& item: this->socketContextMap)
 				{
 					//超时
-					if(std::chrono::duration_cast<std::chrono::seconds>(nowTime - item.second->lastRecvTime).count() >= 3.0f
+					if(std::chrono::duration_cast<std::chrono::seconds>(nowTime - item.second->lastRecvTime).count() >= 30.0f
 					&& !item.second->isWebsocket && item.second->businessRef == 0)
 					{
 						std::cout << "socket " << item.second->socket->Get() << " timeout" << std::endl;
