@@ -40,7 +40,7 @@ TEST(MysqlSubmitService, Insert)
 	{
 		MysqlSubmitService service;
 
-		const std::string sqlCmd = "INSERT INTO user(name) VALUES(NULL)"; 
+		const std::string sqlCmd = "INSERT INTO user(name) VALUES('aaa')"; 
 
 		uint64_t id = service.ExecuteCommand(sqlCmd);
 		EXPECT_EQ(3, id);
@@ -64,12 +64,29 @@ TEST(MysqlSubmitService, Select)
 
 	for(const auto& item: datatable)
 	{
-		for(const auto& elem: item)
-		{
-			if(elem.second.has_value())
-				std::cout << elem.first << ":" << elem.second.value() << std::endl;
-			else
-				std::cout << elem.first << ":null" << std::endl;
-		}
+		std::cout << "id:" << *(int*)(item.at("id").value().data()) << std::endl;
+		std::cout << "name:" << item.at("name").value().data() << std::endl;
 	}
+
+	EXPECT_EQ(2, datatable.size());
+}
+
+TEST(MysqlSubmitService, insertParam)
+{
+	MysqlSubmitService service;
+
+	std::string name("param");
+	int a = 123;
+
+	service.ExecuteCommand("insert into user(id, name) values(?, ?)", a, name);
+
+	auto datatable = service.Query("select * from user where id = ? and name = ?", a, name);
+
+	for(const auto& item: datatable)
+	{
+		std::cout << "id:" << *(int*)(item.at("id").value().data()) << std::endl;
+		std::cout << "name:" << item.at("name").value().data() << std::endl;
+	}
+
+	EXPECT_EQ(1, datatable.size());
 }
