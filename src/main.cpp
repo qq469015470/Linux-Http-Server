@@ -78,6 +78,15 @@ public:
 	}
 };
 
+class ItemInventoryController
+{
+public:
+	web::HttpResponse Add(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		return JsonData(JsonDataCode::Error, nullptr, "失败");	
+	}
+};
+
 int main(int _argc, char* _argv[])
 {	
 	if(_argc != 3)
@@ -94,10 +103,14 @@ int main(int _argc, char* _argv[])
 
 	static HomeController homeController;
 	static WareHouseController wareHouseController;
+	static ItemInventoryController itemInventoryController;
 
 	router->RegisterUrl("GET", "/", &HomeController::Index, &homeController);
+
 	router->RegisterUrl("GET", "/WareHouse/Get", &WareHouseController::Get, &wareHouseController);
 	router->RegisterUrl("POST", "/WareHouse/Add", &WareHouseController::Add, &wareHouseController);
+	
+	router->RegisterUrl("POST", "/ItemInventory/Add", &ItemInventoryController::Add, &itemInventoryController);
 
 	web::HttpServer server(std::move(router));
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MysqlSubmitService.hpp"
+#include "MysqlService.hpp"
 
 #include <string>
 
@@ -13,12 +13,12 @@ struct WareHouse
 class WareHouseService
 {
 private:
-	MysqlSubmitService mysqlSubmitService; 
+	MysqlService mysqlService; 
 
 public:
 	std::vector<WareHouse> GetWareHouses()
 	{
-		auto dataTable = this->mysqlSubmitService.Query("select * from wareHouse");
+		auto dataTable = this->mysqlService.Query("select * from wareHouse");
 
 		std::vector<WareHouse> result;
 		for(const auto& item: dataTable)
@@ -31,10 +31,10 @@ public:
 
 	void AddWareHouse(std::string_view _name)
 	{
-		auto dataTable = this->mysqlSubmitService.Query("select 1 from wareHouse where name = ?", _name);
+		auto dataTable = this->mysqlService.Query("select 1 from wareHouse where name = ?", _name);
 		if(dataTable.size() > 0)
 			throw std::logic_error("仓库名称不能重复!");
 
-		this->mysqlSubmitService.ExecuteCommand("insert into wareHouse(name) values(?)", _name);
+		this->mysqlService.ExecuteCommand("insert into wareHouse(name) values(?)", _name);
 	}
 };

@@ -4,7 +4,8 @@
 #include "HttpHeaderTest.cpp"
 #include "HttpRequestTest.cpp"
 #include "HttpResponseTest.cpp"
-#include "MysqlSubmitServiceTest.cpp"
+#include "MysqlServiceTest.cpp"
+#include "ItemInventoryServiceTest.cpp"
 
 int main(int _argc, char** _argv)
 {

@@ -1,18 +1,18 @@
 #include <gtest/gtest.h>
-#include "../src/MysqlSubmitService.hpp"
+#include "../src/MysqlService.hpp"
 
-TEST(MysqlSubmitService, DropTable)
+TEST(MysqlServiceTest, DropTable)
 {
-	MysqlSubmitService service;
+	MysqlService service;
 
 	const std::string sqlCmd = "DROP TABLE IF EXISTS `user`";
 
 	service.ExecuteCommand(sqlCmd);
 }
 
-TEST(MysqlSubmitService, CreateTable)
+TEST(MysqlServiceTest, CreateTable)
 {
-	MysqlSubmitService service;
+	MysqlService service;
 
 	const std::string sqlCmd = 
 		"CREATE TABLE IF NOT EXISTS `user` ("
@@ -25,10 +25,10 @@ TEST(MysqlSubmitService, CreateTable)
 }
 
 
-TEST(MysqlSubmitService, Insert)
+TEST(MysqlServiceTest, Insert)
 {
 	{
-		MysqlSubmitService service;
+		MysqlService service;
 
 		const std::string sqlCmd = "INSERT INTO user(id, name) VALUES(2, '测试')"; 
 
@@ -38,7 +38,7 @@ TEST(MysqlSubmitService, Insert)
 	}
 
 	{
-		MysqlSubmitService service;
+		MysqlService service;
 
 		const std::string sqlCmd = "INSERT INTO user(name) VALUES('aaa')"; 
 
@@ -47,18 +47,18 @@ TEST(MysqlSubmitService, Insert)
 	}
 }
 
-TEST(MysqlSubmitService, NextInsertId)
+TEST(MysqlServiceTest, NextInsertId)
 {
-	MysqlSubmitService service;
+	MysqlService service;
 
 	uint64_t id = service.GetNextInsertId("user");
 
 	EXPECT_EQ(4, id);
 }
 
-TEST(MysqlSubmitService, Select)
+TEST(MysqlServiceTest, Select)
 {
-	MysqlSubmitService service;
+	MysqlService service;
 
 	auto datatable = service.Query("select * from user");
 
@@ -71,9 +71,9 @@ TEST(MysqlSubmitService, Select)
 	EXPECT_EQ(2, datatable.size());
 }
 
-TEST(MysqlSubmitService, insertParam)
+TEST(MysqlServiceTest, insertParam)
 {
-	MysqlSubmitService service;
+	MysqlService service;
 
 	std::string name("param");
 	int a = 123;
@@ -89,4 +89,15 @@ TEST(MysqlSubmitService, insertParam)
 	}
 
 	EXPECT_EQ(1, datatable.size());
+}
+
+TEST(MysqlServiceTest, GetSafeSqlString)
+{
+	MysqlService service;
+
+	std::string result = service.GetSafeSqlString("asd' or 1 == 1");
+
+	std::cout << result << std::endl;
+
+	EXPECT_STRNE(result.data(), "asd' or 1 == 1");
 }
