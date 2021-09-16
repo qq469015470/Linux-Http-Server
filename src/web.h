@@ -56,6 +56,10 @@ namespace web
 
 				i += 2;
 			}
+			else if(_urlCode[i] == '+')
+			{
+				result += ' ';
+			}
 			else
 			{
 				result += _urlCode[i];
