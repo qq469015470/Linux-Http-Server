@@ -44,6 +44,20 @@ private:
 		_sql_binds.emplace_back(temp);
 	}
 
+	void ExecuteCommandPrepareStatement_ConvertBind(const double& _number, std::vector<MYSQL_BIND>& _sql_binds, std::list<unsigned long>& _length)
+	{
+		MYSQL_BIND temp;
+
+		temp.buffer_type = MYSQL_TYPE_DOUBLE;
+		temp.buffer = const_cast<double*>(&_number);
+
+		_length.push_back(sizeof(_number));
+		temp.length = &_length.back();
+
+		temp.is_null = 0;
+		
+		_sql_binds.emplace_back(temp);
+	}
 
 	template<typename T, typename... ARGS>
 	inline int ExecuteCommandPrepareStatement(std::string_view _cmdStr, std::vector<MYSQL_BIND>& _sql_binds, std::list<unsigned long>& _length, const T& _t, const ARGS& ...args)
@@ -335,7 +349,12 @@ public:
 
 	inline long GetNextInsertId(std::string_view _table)
 	{
-		auto datatable = this->Query("SELECT AUTO_INCREMENT FROM information_schema.`TABLES` WHERE TABLE_SCHEMA = database() AND TABLE_NAME = 'user'");
+		this->ExecuteCommand(std::string("ANALYZE TABLE ") + _table.data());
+
+		MYSQL_RES* res(mysql_use_result(&this->mysql));
+		mysql_free_result(res);
+
+		auto datatable = this->Query("SELECT AUTO_INCREMENT FROM information_schema.`TABLES` WHERE TABLE_SCHEMA = database() AND TABLE_NAME = ?", _table.data());
 
 		return *reinterpret_cast<long*>(datatable[0]["AUTO_INCREMENT"].value().data());
 	}
@@ -346,8 +365,10 @@ public:
 
 		result.resize(_sqlStr.size() * 2 + 1);
 
-		mysql_real_escape_string(&this->mysql, result.data(), _sqlStr.data(), _sqlStr.size());
-		
+		int end = mysql_real_escape_string(&this->mysql, result.data(), _sqlStr.data(), _sqlStr.size());
+
+		result.resize(end);
+
 		return result;
 	}
 };

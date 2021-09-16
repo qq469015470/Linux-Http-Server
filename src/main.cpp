@@ -3,6 +3,7 @@
 #include "web.h"
 
 #include "WareHouseService.hpp"
+#include "ItemInventoryService.hpp"
 
 #include <thread>
 #include <chrono>
@@ -24,7 +25,12 @@ web::HttpResponse JsonData(JsonDataCode _code, const web::JsonObj* const _data, 
 	else
 		temp["data"].SetNull();
 
-	temp["msg"] = _msg.data();
+	temp["msg"] = _msg;
+
+	std::cout << "aa:" << std::endl;
+	std::cout << _msg << std::endl;
+	std::cout << "bb:" << std::endl;
+	std::cout << temp["msg"].ToString() << std::endl;
 
 	return web::Json(temp);
 }
@@ -83,7 +89,28 @@ class ItemInventoryController
 public:
 	web::HttpResponse Add(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		return JsonData(JsonDataCode::Error, nullptr, "失败");	
+		ItemInventoryService itemInventoryService;
+	       	
+		std::vector<std::string> sqlCmds;
+	       
+		sqlCmds	= itemInventoryService.GetAddItemInventorySql
+							(
+								_params["_materialName"].ToString(), 
+								std::stoi(_params["_itemInventory"]["wareHouseId"].ToString()), 
+								std::stod(_params["_itemInventory"]["cost"].ToString())
+							);
+		MysqlService mysqlService;
+
+		const int& itemInventoryId = mysqlService.GetNextInsertId("itemInventory");
+
+		for(const auto& item: itemInventoryService.GetCheckInSql(itemInventoryId, std::stod(_params["_itemInventory"]["stock"].ToString())))
+		{
+			sqlCmds.emplace_back(item);
+		}
+		
+		mysqlService.ExecuteCommandWithTran(sqlCmds);
+
+		return JsonData(JsonDataCode::Success, nullptr, "添加成功");	
 	}
 };
 

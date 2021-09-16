@@ -95,9 +95,11 @@ TEST(MysqlServiceTest, GetSafeSqlString)
 {
 	MysqlService service;
 
-	std::string result = service.GetSafeSqlString("asd' or 1 == 1");
+	const std::string before = "asd' or 1 == 1";
+	const std::string result = service.GetSafeSqlString(before);
 
-	std::cout << result << std::endl;
+	std::cout << "beforesql:" << before << "|" << before.size() << std::endl;
+	std::cout << "safesql:" << result << "|" << result.size() <<  std::endl;
 
-	EXPECT_STRNE(result.data(), "asd' or 1 == 1");
+	EXPECT_STRNE(result.data(), before.data());
 }
