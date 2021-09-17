@@ -245,6 +245,8 @@ namespace web
 
 							leftTemp = value.find_first_not_of(' ', rightTemp + 1);
 						} while(rightTemp != std::string::npos);
+
+						return;
 						break;
 					}
 				}
