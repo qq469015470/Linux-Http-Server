@@ -65,6 +65,19 @@ TEST(JsonObj, ParseJsonArray)
 	EXPECT_EQ(result["people"][1]["lastName"].ToString(), "Hunter");
 }
 
+
+TEST(JsonObj, ParseJsonArray2)
+{
+	web::JsonObj obj;
+
+	std::string json = "[{\"stock\": 1230.000000,\"name\": \"' 1 ==  1\",\"materialId\": 105,\"wareHouseId\": 99,\"price\": 34.100000,\"id\": 74},{\"stock\": 1230.000000,\"name\": \"'拉拉\",\"materialId\": 105,\"wareHouseId\": 99,\"price\": 34.100000,\"id\": 74}]";
+
+	obj = web::JsonObj::ParseJson(json); 
+
+	std::cout << obj.ToJson() << std::endl;
+	EXPECT_EQ(2, obj.GetArraySize());
+}
+
 TEST(JsonObj, ParseJsonObject)
 {
 	std::string json = "{ \"name\":\"Bill Gates\", \"age\":62, \"cars\": {\"car1\":\"Porsche\", \"car2\":\"BMW\", \"car3\":\"Volvo\"}}";
