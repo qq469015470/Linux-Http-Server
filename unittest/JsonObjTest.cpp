@@ -114,3 +114,28 @@ TEST(JsonObj, SetArray)
 		EXPECT_EQ(res[i]["ip"].ToString(), std::to_string(i));
 	}
 }
+
+TEST(JsonObj, TurnChar)
+{
+	web::JsonObj res;
+
+	res["name"] = "\"双引号 +\"";
+
+	std::cout << res.ToJson() << std::endl;
+	std::cout << res["name"].ToString() << std::endl;
+
+	EXPECT_STREQ("\"\\\"双引号 +\\\"\"", res["name"].ToJson().data());
+
+	web::JsonObj temp = web::JsonObj::ParseJson(res.ToJson());
+
+	std::cout << "res to json:" << std::endl;
+	std::cout << res.ToJson() << std::endl;
+	std::cout << res["name"].ToString() << std::endl;
+	std::cout << res["name"].ToJson() << std::endl;
+	std::cout << "temp to json:" << std::endl;
+	std::cout << temp.ToJson() << std::endl;
+	std::cout << temp["name"].ToString() << std::endl;
+	std::cout << temp["name"].ToJson() << std::endl;
+
+	EXPECT_STREQ("\"\\\"双引号 +\\\"\"", temp["name"].ToJson().data());
+}

@@ -199,7 +199,30 @@ namespace web
 				{
 					case '"':
 					{
-						curJson = _json.substr(pos + 1, _json.find('"', pos + 1) - (pos + 1));
+						std::string::size_type left(pos + 1);
+						std::string::size_type right(_json.find('"', left + 1));
+
+						while(*(_json.begin() + right - 1) == '\\')
+						{
+							right = _json.find('"', right + 1);
+						}
+
+						//right++;
+						std::string value = _json.substr(left, right - left); 
+
+
+						std::string::size_type turnChar(0);
+						while((turnChar = value.find("\\\"", turnChar)) != std::string::npos)
+						{
+							const std::string replaceStr = "\"";
+
+							value = value.replace(turnChar, 2, replaceStr);
+
+							turnChar += 1;
+						}
+
+						curJson = value;
+
 						return;
 						break;
 					}
@@ -215,7 +238,8 @@ namespace web
 
 						auto endChar = special.find(_json[left]);
 						if(endChar != special.end())
-							right = _json.find(endChar->second, left + 1) + 1;
+							//right = _json.find(endChar->second) + 1;
+							right = _json.find_last_of(endChar->second) + 1;
 						else
 							right = _json.find(",", left + 1);
 
@@ -525,7 +549,25 @@ namespace web
 
 			if(this->val.has_value())
 			{
-				return *this->val;	
+				std::string res(*this->val);
+
+				if(this->valType == JsonType::STRING)
+				{
+					std::string::size_type turnChar(1);
+					while((turnChar = res.find('\"', turnChar)) != std::string::npos)
+					{
+						if(turnChar == res.size() - 1)
+							break;
+
+						const std::string replaceStr = "\\\"";
+
+						res = res.replace(turnChar, 1, replaceStr);
+
+						turnChar += 2;
+					}
+				}
+
+				return res;	
 			}
 			else if(this->arr.has_value())
 			{
