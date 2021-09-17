@@ -4,6 +4,7 @@
 
 #include "WareHouseService.hpp"
 #include "ItemInventoryService.hpp"
+#include "MaterialService.hpp"
 
 #include <thread>
 #include <chrono>
@@ -27,10 +28,8 @@ web::HttpResponse JsonData(JsonDataCode _code, const web::JsonObj* const _data, 
 
 	temp["msg"] = _msg;
 
-	std::cout << "aa:" << std::endl;
-	std::cout << _msg << std::endl;
-	std::cout << "bb:" << std::endl;
-	std::cout << temp["msg"].ToString() << std::endl;
+	std::cout << "data:" << std::endl;
+	std::cout << temp["data"].ToJson() << std::endl;
 
 	return web::Json(temp);
 }
@@ -103,7 +102,7 @@ public:
 
 		const int& itemInventoryId = mysqlService.GetNextInsertId("itemInventory");
 
-		for(const auto& item: itemInventoryService.GetCheckInSql(itemInventoryId, std::stod(_params["_itemInventory"]["stock"].ToString())))
+		for(const auto& item: itemInventoryService.GetCheckInSql(itemInventoryId, std::stod(_params["_itemInventory"]["stock"].ToString()), false))
 		{
 			sqlCmds.emplace_back(item);
 		}
@@ -111,6 +110,65 @@ public:
 		mysqlService.ExecuteCommandWithTran(sqlCmds);
 
 		return JsonData(JsonDataCode::Success, nullptr, "添加成功");	
+	}
+
+	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		ItemInventoryService itemInventoryService;
+
+		std::vector<ItemInventoryView> view = itemInventoryService.GetByWareHouseId(std::stoi(_params["_houseId"].ToString()));
+
+		web::JsonObj data;
+		for(const auto& item: view)
+		{
+			web::JsonObj temp;
+
+			temp["id"] = item.id;
+			temp["wareHouseId"] = item.wareHouseId;
+			temp["materialId"] = item.materialId;
+			temp["name"] = item.name;
+			temp["price"] = item.price;
+			temp["stock"] = item.stock;
+
+			data.Push(std::move(temp));
+		}
+
+		std::cout << "will response:" << std::endl;
+		std::cout << data.ToJson() << std::endl;
+		
+		return JsonData(JsonDataCode::Success, &data, "");
+	}
+
+	web::HttpResponse CheckIn(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
+		const double number = std::stod(_params["_number"].ToString());
+
+		ItemInventoryService itemInventoryService; 
+
+		const std::vector<std::string> sqlCmds = itemInventoryService.GetCheckInSql(itemInventoryId, number);
+
+		MysqlService mysqlService;
+
+		mysqlService.ExecuteCommandWithTran(sqlCmds);
+
+		return JsonData(JsonDataCode::Success, nullptr, "");
+	}
+
+	web::HttpResponse CheckOut(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
+		const double number = std::stod(_params["_number"].ToString());
+
+		ItemInventoryService itemInventoryService; 
+
+		const std::vector<std::string> sqlCmds = itemInventoryService.GetCheckOutSql(itemInventoryId, number);
+
+		MysqlService mysqlService;
+
+		mysqlService.ExecuteCommandWithTran(sqlCmds);
+
+		return JsonData(JsonDataCode::Success, nullptr, "");
 	}
 };
 
@@ -138,6 +196,9 @@ int main(int _argc, char* _argv[])
 	router->RegisterUrl("POST", "/WareHouse/Add", &WareHouseController::Add, &wareHouseController);
 	
 	router->RegisterUrl("POST", "/ItemInventory/Add", &ItemInventoryController::Add, &itemInventoryController);
+	router->RegisterUrl("GET", "/ItemInventory/Get", &ItemInventoryController::Get, &itemInventoryController);
+	router->RegisterUrl("POST", "/ItemInventory/CheckIn", &ItemInventoryController::CheckIn, &itemInventoryController);
+	router->RegisterUrl("POST", "/ItemInventory/CheckOut", &ItemInventoryController::CheckOut, &itemInventoryController);
 
 	web::HttpServer server(std::move(router));
 
