@@ -113,6 +113,30 @@ public:
 		return result;
 	}
 
+	inline std::vector<std::string> GetEditItemInventorySql(const int& _itemInventoryId, std::string_view _name, const double& _price)
+	{
+		auto dataTable = this->mysqlService.Query("select * from itemInventory where id = ?", _itemInventoryId);
+		if(dataTable.size() != 1)
+			throw std::logic_error("库存不存在!");
+
+		std::optional<Material> material = this->materialService.GetMaterial(*reinterpret_cast<int*>(dataTable.front()["materialId"]->data()));
+		if(!material.has_value())
+			throw std::logic_error("物料不存在!");
+		
+		std::stringstream sqlCmd;
+		std::vector<std::string> result;
+
+		sqlCmd << "update itemInventory set cost = " << _price << " where id = " << _itemInventoryId;
+		result.emplace_back(sqlCmd.str());
+		sqlCmd.str("");
+
+		sqlCmd << "update material set name = \"" << this->mysqlService.GetSafeSqlString(_name) << "\" where id = " << material->id ;
+		result.emplace_back(sqlCmd.str());
+		sqlCmd.str("");
+
+		return result;
+	}
+
 	inline std::vector<ItemInventoryView> GetByWareHouseId(const int& _wareHouseId)
 	{
 		auto dataTable = this->mysqlService.Query("select itemInventory.*, material.name from itemInventory left join material on itemInventory.materialId = material.id where itemInventory.wareHouseId = ?", _wareHouseId);				

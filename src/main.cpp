@@ -1,13 +1,163 @@
-#include <netdb.h>
-
 #include "web.h"
 
 #include "WareHouseService.hpp"
 #include "ItemInventoryService.hpp"
 #include "MaterialService.hpp"
+#include "CheckService.hpp"
 
 #include <thread>
 #include <chrono>
+#include <netdb.h>
+
+class DateTime
+{
+private:
+	//static constexpr char errorMsg[] = "转换失败";
+	std::chrono::system_clock::time_point tp;
+
+public:
+	DateTime()
+	{
+
+	}
+
+	static DateTime Convert(std::string_view _str)
+	{
+		/*if (_str[4] != '-' || _str[7] != '-' || _str[10] != ' ' || _str[13] != ':' || _str[16] != ':')
+			throw std::exception(DateTime::errorMsg);
+
+		for (int i = 0; i <= 3; i++)
+			if (_str[i] < '0' || _str[i] > '9')
+				throw std::exception(DateTime::errorMsg);
+
+		for (int i = 5; i <= 6; i++)
+			if (_str[i] < '0' || _str[i] > '9')
+				throw std::exception(DateTime::errorMsg);
+
+		for (int i = 8; i <= 9; i++)
+			if (_str[i] < '0' || _str[i] > '9')
+				throw std::exception(DateTime::errorMsg);
+
+		for (int i = 11; i <= 12; i++)
+			if (_str[i] < '0' || _str[i] > '9')
+				throw std::exception(DateTime::errorMsg);
+
+		for (int i = 14; i <= 15; i++)
+			if (_str[i] < '0' || _str[i] > '9')
+				throw std::exception(DateTime::errorMsg);
+
+		for (int i = 17; i <= 18; i++)
+			if (_str[i] < '0' || _str[i] > '9')
+				throw std::exception(DateTime::errorMsg);*/
+
+		DateTime date;
+		time_t t;
+		tm s = {};
+
+		sscanf(_str.data(), "%d-%d-%d %d:%d:%d", &s.tm_year, &s.tm_mon, &s.tm_mday, &s.tm_hour, &s.tm_min, &s.tm_sec);
+
+		s.tm_year -= 1900;
+		s.tm_mon -= 1;
+
+		if (s.tm_hour < 0)
+			s.tm_hour = 0;
+		if (s.tm_min < 0)
+			s.tm_min = 0;
+		if (s.tm_sec < 0)
+			s.tm_sec = 0;
+
+		t = std::mktime(&s);
+		if (t == -1)
+			throw std::runtime_error("转换失败");
+
+		date.tp = std::chrono::system_clock::from_time_t(t);
+
+		return date;
+	}
+
+	static DateTime Now()
+	{
+		DateTime now;
+
+		now.tp = std::chrono::system_clock::now();
+
+		return now;
+	}
+
+	DateTime AddYears(int _years)
+	{
+		DateTime temp;
+
+		temp = *this;
+		temp.tp += std::chrono::duration<int, std::ratio<60 * 60 * 24 * 365>>(_years);
+
+		return temp;
+	}
+
+	DateTime AddMonths(int _months)
+	{
+		DateTime temp;
+
+		temp = *this;
+		temp.tp += std::chrono::duration<int, std::ratio<60 * 60 * 24 * 30>>(_months);
+
+		return temp;
+	}
+
+	DateTime AddDays(int _days)
+	{
+		DateTime temp;
+
+		temp = *this;
+		temp.tp += std::chrono::duration<int, std::ratio<60 * 60 * 24>>(_days);
+
+		return temp;
+	}
+
+	DateTime AddHours(int _hours)
+	{
+		DateTime temp;
+
+		temp = *this;
+		temp.tp += std::chrono::duration<int, std::ratio<60 * 60>>(_hours);
+
+		return temp;
+	}
+
+	DateTime AddMinutes(int _minutes)
+	{
+		DateTime temp;
+
+		temp = *this;
+		temp.tp += std::chrono::duration<int, std::ratio<60>>(_minutes);
+
+		return temp;
+	}
+
+	DateTime AddSeconds(int _seconds)
+	{
+		DateTime temp;
+
+		temp = *this;
+		temp.tp += std::chrono::duration<int, std::ratio<1>>(_seconds);
+
+		return temp;
+	}
+
+	std::string ToString()
+	{
+		time_t temp;
+		std::tm time;
+
+		temp = std::chrono::system_clock::to_time_t(this->tp);
+		time = *std::localtime(&temp);
+
+		std::stringstream ss;
+
+		ss << std::put_time(&time, "%Y-%m-%d %H:%M:%S");
+		return ss.str();
+	}
+};
 
 enum JsonDataCode: int
 {
@@ -112,6 +262,28 @@ public:
 		return JsonData(JsonDataCode::Success, nullptr, "添加成功");	
 	}
 
+
+	web::HttpResponse Edit(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		ItemInventoryService itemInventoryService;
+
+		std::vector<std::string> sqlCmds;
+
+		sqlCmds = itemInventoryService.GetEditItemInventorySql
+				(
+				 	std::stoi(_params["_itemInventoryId"].ToString()),
+					_params["_name"].ToString(),
+					std::stod(_params["_price"].ToString())
+				);
+
+
+		MysqlService mysqlService;
+
+		mysqlService.ExecuteCommandWithTran(sqlCmds);
+
+		return JsonData(JsonDataCode::Success, nullptr, "修改成功");	
+	}
+
 	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
 		ItemInventoryService itemInventoryService;
@@ -172,6 +344,43 @@ public:
 	}
 };
 
+class CheckController
+{
+public:
+	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		//DateTime start(DateTime::Convert(_params["_date"].ToString()));
+		//DateTime end(start.AddDays(1));
+
+		CheckService checkService;	
+
+		const std::vector<CheckView> view = checkService.GetCheck
+							(
+								std::stoi(_params["_houseId"].ToString()),
+								//start.ToString(),
+								//end.ToString()
+								"2021-09-18",
+								"2021-09-19"
+							);
+
+		web::JsonObj result;
+		for(const auto& item: view)
+		{
+			web::JsonObj temp;
+
+			temp["id"] = item.id;
+			temp["name"] = item.name;
+			temp["checkIn"] = item.checkIn;
+			temp["checkOut"] = item.checkOut;
+			temp["cost"] = item.cost;
+
+			result.Push(std::move(temp));
+		}
+
+		return JsonData(JsonDataCode::Success, &result, "");
+	}
+};
+
 int main(int _argc, char* _argv[])
 {	
 	if(_argc != 3)
@@ -189,6 +398,7 @@ int main(int _argc, char* _argv[])
 	static HomeController homeController;
 	static WareHouseController wareHouseController;
 	static ItemInventoryController itemInventoryController;
+	static CheckController checkController;
 
 	router->RegisterUrl("GET", "/", &HomeController::Index, &homeController);
 
@@ -196,9 +406,13 @@ int main(int _argc, char* _argv[])
 	router->RegisterUrl("POST", "/WareHouse/Add", &WareHouseController::Add, &wareHouseController);
 	
 	router->RegisterUrl("POST", "/ItemInventory/Add", &ItemInventoryController::Add, &itemInventoryController);
+	router->RegisterUrl("POST", "/ItemInventory/Edit", &ItemInventoryController::Edit, &itemInventoryController);
 	router->RegisterUrl("GET", "/ItemInventory/Get", &ItemInventoryController::Get, &itemInventoryController);
 	router->RegisterUrl("POST", "/ItemInventory/CheckIn", &ItemInventoryController::CheckIn, &itemInventoryController);
 	router->RegisterUrl("POST", "/ItemInventory/CheckOut", &ItemInventoryController::CheckOut, &itemInventoryController);
+
+	router->RegisterUrl("GET", "/Check/Get", &CheckController::Get, &checkController);
+
 
 	web::HttpServer server(std::move(router));
 

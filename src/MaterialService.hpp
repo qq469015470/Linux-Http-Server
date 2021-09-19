@@ -33,6 +33,21 @@ public:
 		};
 	}
 
+
+	inline std::optional<Material> GetMaterial(const int& _materialId)
+	{
+		auto datatable = this->mysqlService.Query("select * from material where id = ?", _materialId);
+
+		if(datatable.size() != 1)
+			return {};
+
+		return Material
+		{
+			.id = *reinterpret_cast<int*>(datatable.front()["id"]->data()),
+			.name = datatable.front()["id"]->data()
+		};
+	}
+
 	inline std::vector<std::string> GetAddMaterialSql(const int& _materialId, std::string_view _materialName)
 	{
 		std::stringstream sqlCmd;
