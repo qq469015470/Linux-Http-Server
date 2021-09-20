@@ -2288,10 +2288,10 @@ namespace web
 							std::cout << "发送" << std::endl;
 							int writeSize = context->socket->Write(context->waitWrite.data(), std::min<size_t>(context->waitWrite.size(), 1024));
 
-							context->waitWrite.erase(context->waitWrite.begin(), context->waitWrite.begin() + writeSize);
-
 							if(context->waitWrite.size() > 0)
 							{
+								context->waitWrite.erase(context->waitWrite.begin(), context->waitWrite.begin() + writeSize);
+
 								epoll_event ev;
 
 								ev.data.fd = context->socket->Get();
