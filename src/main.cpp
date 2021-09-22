@@ -349,21 +349,21 @@ class CheckController
 public:
 	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		//DateTime start(DateTime::Convert(_params["_date"].ToString()));
-		//DateTime end(start.AddDays(1));
+		DateTime start(DateTime::Convert(_params["_date"].ToString()));
+		DateTime end(start.AddDays(1));
 
 		CheckService checkService;	
 
 		const std::vector<CheckView> view = checkService.GetCheck
 							(
 								std::stoi(_params["_houseId"].ToString()),
-								//start.ToString(),
-								//end.ToString()
-								"2021-09-18",
-								"2021-09-19"
+								start.ToString(),
+								end.ToString()
 							);
 
 		web::JsonObj result;
+
+		result.SetArrayNull();
 		for(const auto& item: view)
 		{
 			web::JsonObj temp;
@@ -373,6 +373,37 @@ public:
 			temp["checkIn"] = item.checkIn;
 			temp["checkOut"] = item.checkOut;
 			temp["cost"] = item.cost;
+
+			result.Push(std::move(temp));
+		}
+
+		return JsonData(JsonDataCode::Success, &result, "");
+	}
+
+	web::HttpResponse GetDetail(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		DateTime start(DateTime::Convert(_params["_date"].ToString()));
+		DateTime end(start.AddDays(1));
+
+		CheckService checkService;
+
+		const std::vector<CheckDetailView> view = checkService.GetCheckDetail
+								(
+									std::stoi(_params["_itemInventoryId"].ToString()),
+									start.ToString(),
+									end.ToString()
+								);
+
+		web::JsonObj result;
+
+		result.SetArrayNull();
+		for(const auto& item: view)
+		{
+			web::JsonObj temp;
+
+			temp["id"] = item.id;
+			temp["number"] = item.number;
+			temp["time"] = item.time;
 
 			result.Push(std::move(temp));
 		}
@@ -412,7 +443,7 @@ int main(int _argc, char* _argv[])
 	router->RegisterUrl("POST", "/ItemInventory/CheckOut", &ItemInventoryController::CheckOut, &itemInventoryController);
 
 	router->RegisterUrl("GET", "/Check/Get", &CheckController::Get, &checkController);
-
+	router->RegisterUrl("GET", "/Check/GetDetail", &CheckController::GetDetail, &checkController);
 
 	web::HttpServer server(std::move(router));
 
