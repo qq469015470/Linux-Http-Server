@@ -106,6 +106,113 @@ private:
 		return mysql_insert_id(&this->mysql);
 	}
 
+	inline std::vector<std::unordered_map<std::string, std::optional<std::vector<char>>>> GetQueryResult(MYSQL_STMT* _stmt)
+	{
+		//MYSQL_RES* result(mysql_store_result(&mysql));
+		MYSQL_RES* result(mysql_stmt_result_metadata(_stmt));
+		if(!result)
+			throw std::runtime_error("MYSQL not result!");	
+
+		const int num_fields = mysql_num_fields(result);
+		if(num_fields == 0)
+			throw std::runtime_error("MYSQL fields number is 0!");
+
+		const MYSQL_FIELD* fields = mysql_fetch_fields(result);
+		if(!fields)
+			throw std::runtime_error("MYSQL fields fetch is error!");
+
+		std::unordered_map<int, std::string> fieldMap;
+
+		std::vector<MYSQL_BIND> binds;
+		binds.resize(num_fields);
+
+		std::vector<std::vector<char>> buffers;
+		buffers.resize(binds.size());
+
+		std::vector<unsigned long> real_length;
+		real_length.resize(binds.size());
+
+		bool errors[256];
+		bool isNull[256];
+
+		memset(errors, 0, sizeof(errors));
+		memset(isNull, 0, sizeof(isNull));
+
+		//读取表字段
+		for(int i = 0; i < num_fields; i++)
+		{
+			//std::cout << "field" << i << " name is " << fields[i].name << std::endl;
+			//std::cout << fields[i].type << "|MYSQL_TYPE_VAR_STRING:" << MYSQL_TYPE_VAR_STRING << std::endl;
+
+			fieldMap.insert(std::pair(i, fields[i].name));
+
+
+			binds.at(i) = {};
+
+			switch(fields[i].type)
+			{
+				case MYSQL_TYPE_STRING:
+				case MYSQL_TYPE_VAR_STRING:
+					buffers.at(i).resize(fields[i].length);
+					binds.at(i).buffer_length = buffers.at(i).size();
+					break;
+				case MYSQL_TYPE_LONG:
+					buffers.at(i).resize(8);
+					break;
+				case MYSQL_TYPE_DOUBLE:
+					buffers.at(i).resize(8);
+					break;
+				case MYSQL_TYPE_DATE:
+				case MYSQL_TYPE_DATETIME:
+					buffers.at(i).resize(sizeof(MYSQL_TIME));
+					break;
+				default:
+					throw std::runtime_error("not implement");	
+					break;
+			}
+
+
+			//memset(&binds.at(i), 0, sizeof(MYSQL_BIND));
+			binds.at(i).buffer_type = fields[i].type;
+			binds.at(i).buffer = buffers.at(i).data();
+
+			binds.at(i).length = &real_length.at(i); 
+			binds.at(i).error = &errors[i];
+			binds.at(i).is_null = &isNull[i];
+		}
+
+
+		if(mysql_stmt_bind_result(this->stmt, binds.data()))
+			throw std::runtime_error(mysql_stmt_error(this->stmt));
+
+		if (mysql_stmt_store_result(this->stmt))
+			throw std::runtime_error(mysql_stmt_error(this->stmt));
+
+
+		std::vector<std::unordered_map<std::string, std::optional<std::vector<char>>>> dataTable;
+
+		while(!mysql_stmt_fetch(this->stmt))
+		{
+			std::unordered_map<std::string, std::optional<std::vector<char>>> temp;
+
+			for(int i = 0; i < num_fields; i++)
+			{
+				std::optional<std::vector<char>> value;
+				value = buffers[i];
+
+				const std::pair<decltype(temp)::iterator, bool> insertRes = temp.insert(std::pair(fieldMap.at(i), std::move(value)));
+
+				assert(insertRes.second == true);
+			}	
+
+			dataTable.emplace_back(std::move(temp));
+		}
+
+		mysql_free_result(result);
+
+		return dataTable;
+	}
+
 public:
 	MysqlService()
 	{
@@ -166,184 +273,14 @@ public:
 	{
 		this->ExecuteCommand(_cmdStr, args...);
 
-		//MYSQL_RES* result(mysql_store_result(&mysql));
-		MYSQL_RES* result(mysql_stmt_result_metadata(this->stmt));
-		if(!result)
-			throw std::runtime_error("MYSQL not result!");	
-
-		const int num_fields = mysql_num_fields(result);
-		if(num_fields == 0)
-			throw std::runtime_error("MYSQL fields number is 0!");
-
-		const MYSQL_FIELD* fields = mysql_fetch_fields(result);
-		if(!fields)
-			throw std::runtime_error("MYSQL fields fetch is error!");
-
-		std::unordered_map<int, std::string> fieldMap;
-		std::vector<MYSQL_BIND> binds;
-		binds.resize(num_fields);
-		std::vector<std::vector<char>> buffers;
-		buffers.resize(binds.size());
-		//读取表字段
-		for(int i = 0; i < num_fields; i++)
-		{
-			//std::cout << "field" << i << " name is " << fields[i].name << std::endl;
-			//std::cout << fields[i].type << "|MYSQL_TYPE_VAR_STRING:" << MYSQL_TYPE_VAR_STRING << std::endl;
-
-			fieldMap.insert(std::pair(i, fields[i].name));
-
-			buffers[i].resize(fields[i].length);
-
-
-			binds[i].buffer_type = fields[i].type;
-			binds[i].buffer = buffers[i].data();
-			binds[i].buffer_length = buffers[i].size();
-		}
-
-
-		//unsigned long length[2];
-		//bool          error[4];
-		//bool          is_null[4];
-
-		//int int_data;
-		/* INTEGER COLUMN */
-		//binds[0].buffer_type= MYSQL_TYPE_LONG;
-		//binds[0].buffer= buffers[0].data(); //(char *)&int_data;
-		//binds[0].is_null= &is_null[0];
-		//binds[0].length= &length[0];
-		//binds[0].error= &error[0];
-		
-		//std::string str_data;
-		//str_data.resize(255);
-		/* STRING COLUMN */
-		//binds[1].buffer_type= MYSQL_TYPE_STRING;
-		//binds[1].buffer= buffers[1].data(); //(char *)str_data.data();
-		//binds[1].buffer_length= buffers[1].size(); //str_data.size();
-		//binds[1].is_null= &is_null[1];
-		//binds[1].length= &length[1];
-		//binds[1].error= &error[1];
-
-
-		std::vector<std::unordered_map<std::string, std::optional<std::vector<char>>>> dataTable;
-
-		if(mysql_stmt_bind_result(this->stmt, binds.data()))
-			throw std::runtime_error(mysql_stmt_error(stmt));
-
-		if (mysql_stmt_store_result(this->stmt))
-			throw std::runtime_error(mysql_stmt_error(stmt));
-
-		while(!mysql_stmt_fetch(this->stmt))
-		{
-			std::unordered_map<std::string, std::optional<std::vector<char>>> temp;
-
-			for(int i = 0; i < num_fields; i++)
-			{
-				std::optional<std::vector<char>> value;
-				value = buffers[i];
-
-				const std::pair<decltype(temp)::iterator, bool> insertRes = temp.insert(std::pair(fieldMap.at(i), std::move(value)));
-
-				assert(insertRes.second == true);
-			}	
-
-			dataTable.emplace_back(std::move(temp));
-		}
-
-		mysql_free_result(result);
-
-		return dataTable;
+		return GetQueryResult(this->stmt);
 	}
 
 	inline std::vector<std::unordered_map<std::string, std::optional<std::vector<char>>>> Query(std::string_view _cmdStr)
 	{
 		this->ExecuteCommand_WithParam(_cmdStr, {});
 
-		//MYSQL_RES* result(mysql_store_result(&mysql));
-		MYSQL_RES* result(mysql_stmt_result_metadata(this->stmt));
-		if(!result)
-			throw std::runtime_error("MYSQL not result!");	
-
-		const int num_fields = mysql_num_fields(result);
-		if(num_fields == 0)
-			throw std::runtime_error("MYSQL fields number is 0!");
-
-		const MYSQL_FIELD* fields = mysql_fetch_fields(result);
-		if(!fields)
-			throw std::runtime_error("MYSQL fields fetch is error!");
-
-		std::unordered_map<int, std::string> fieldMap;
-		std::vector<MYSQL_BIND> binds;
-		binds.resize(num_fields);
-		std::vector<std::vector<char>> buffers;
-		buffers.resize(binds.size());
-		//读取表字段
-		for(int i = 0; i < num_fields; i++)
-		{
-			//std::cout << "field" << i << " name is " << fields[i].name << std::endl;
-			//std::cout << fields[i].type << "|MYSQL_TYPE_VAR_STRING:" << MYSQL_TYPE_VAR_STRING << std::endl;
-
-			fieldMap.insert(std::pair(i, fields[i].name));
-
-			buffers[i].resize(fields[i].length);
-
-
-			binds[i].buffer_type = fields[i].type;
-			binds[i].buffer = buffers[i].data();
-			binds[i].buffer_length = buffers[i].size();
-		}
-
-
-		//unsigned long length[2];
-		//bool          error[4];
-		//bool          is_null[4];
-
-		//int int_data;
-		/* INTEGER COLUMN */
-		//binds[0].buffer_type= MYSQL_TYPE_LONG;
-		//binds[0].buffer= buffers[0].data(); //(char *)&int_data;
-		//binds[0].is_null= &is_null[0];
-		//binds[0].length= &length[0];
-		//binds[0].error= &error[0];
-		
-		//std::string str_data;
-		//str_data.resize(255);
-		/* STRING COLUMN */
-		//binds[1].buffer_type= MYSQL_TYPE_STRING;
-		//binds[1].buffer= buffers[1].data(); //(char *)str_data.data();
-		//binds[1].buffer_length= buffers[1].size(); //str_data.size();
-		//binds[1].is_null= &is_null[1];
-		//binds[1].length= &length[1];
-		//binds[1].error= &error[1];
-
-
-		std::vector<std::unordered_map<std::string, std::optional<std::vector<char>>>> dataTable;
-
-		if(mysql_stmt_bind_result(this->stmt, binds.data()))
-			throw std::runtime_error(mysql_stmt_error(stmt));
-
-		if (mysql_stmt_store_result(this->stmt))
-			throw std::runtime_error(mysql_stmt_error(stmt));
-
-		while(!mysql_stmt_fetch(this->stmt))
-		{
-			std::unordered_map<std::string, std::optional<std::vector<char>>> temp;
-
-			for(int i = 0; i < num_fields; i++)
-			{
-				std::optional<std::vector<char>> value;
-				value = buffers[i];
-
-				const std::pair<decltype(temp)::iterator, bool> insertRes = temp.insert(std::pair(fieldMap.at(i), std::move(value)));
-
-				assert(insertRes.second == true);
-			}	
-
-			dataTable.emplace_back(std::move(temp));
-		}
-
-		mysql_free_result(result);
-
-		return dataTable;
+		return GetQueryResult(this->stmt);
 	}
 
 
