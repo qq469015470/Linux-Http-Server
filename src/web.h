@@ -176,6 +176,12 @@ namespace web
 
 		static void ParseJson(JsonObj& curJson, std::string _json)
 		{
+			if(_json == "null")
+			{
+				curJson.SetNull();
+				return;
+			}
+
 			static std::unordered_map<char, char> special =
 			{
 				{'{', '}'},
@@ -255,20 +261,25 @@ namespace web
 						const std::string value = _json.substr(pos + 1, _json.find(']', pos + 1) - (pos + 1));
 						std::string::size_type leftTemp(0);
 						std::string::size_type rightTemp(std::string::npos);
+
+						curJson.SetArrayNull();
 					
-						do
-						{	
-							auto endChar = special.find(value[leftTemp]);
-							rightTemp = value.find(endChar->second, leftTemp + 1); 
-							rightTemp = value.find(",", rightTemp + 1);
-							const std::string arrayValue = value.substr(leftTemp, rightTemp - leftTemp);
+						if(!value.empty())
+						{
+							do
+							{	
+								auto endChar = special.find(value[leftTemp]);
+								rightTemp = value.find(endChar->second, leftTemp + 1); 
+								rightTemp = value.find(",", rightTemp + 1);
+								const std::string arrayValue = value.substr(leftTemp, rightTemp - leftTemp);
 
-							//std::cout << "[] value:" << arrayValue<< std::endl;
-							curJson.Push("");
-							JsonObj::ParseJson(curJson[curJson.GetArraySize() - 1], arrayValue);
+								//std::cout << "[] value:" << arrayValue<< std::endl;
+								curJson.Push("");
+								JsonObj::ParseJson(curJson[curJson.GetArraySize() - 1], arrayValue);
 
-							leftTemp = value.find_first_not_of(' ', rightTemp + 1);
-						} while(rightTemp != std::string::npos);
+								leftTemp = value.find_first_not_of(' ', rightTemp + 1);
+							} while(rightTemp != std::string::npos);
+						}
 
 						return;
 						break;
@@ -492,6 +503,15 @@ namespace web
 			this->valType = JsonType::NULLVAL;
 		}
 
+		void SetArrayNull()
+		{
+			this->attrs.clear();
+			this->val.reset();
+
+			this->arr = std::vector<std::unique_ptr<JsonObj>>{};
+			this->valType = JsonType::ARRAY;
+		}
+
 		template<typename T>
 		void Push(T _value)
 		{
@@ -578,7 +598,10 @@ namespace web
 					res += item->ToJson() + ",";
 				}
 
-				res.back() = ']';
+				if(this->arr->size() > 0)
+					res.back() = ']';
+				else
+					res += ']';
 
 				return res;
 			}
