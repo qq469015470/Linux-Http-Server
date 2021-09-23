@@ -410,6 +410,32 @@ public:
 
 		return JsonData(JsonDataCode::Success, &result, "");
 	}
+
+	web::HttpResponse CancelCheckIn(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		CheckService checkService;
+
+		const std::vector<std::string> sql = checkService.GetCancelCheckInSql(std::stoi(_params["_id"].ToString()));	
+
+		MysqlService mysqlService;
+
+		mysqlService.ExecuteCommandWithTran(sql);
+
+		return JsonData(JsonDataCode::Success, nullptr, "");
+	}
+
+	web::HttpResponse CancelCheckOut(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		CheckService checkService;
+
+		const std::vector<std::string> sql = checkService.GetCancelCheckInSql(std::stoi(_params["_id"].ToString()));	
+
+		MysqlService mysqlService;
+
+		mysqlService.ExecuteCommandWithTran(sql);
+
+		return JsonData(JsonDataCode::Success, nullptr, "");
+	}
 };
 
 int main(int _argc, char* _argv[])
@@ -444,6 +470,8 @@ int main(int _argc, char* _argv[])
 
 	router->RegisterUrl("GET", "/Check/Get", &CheckController::Get, &checkController);
 	router->RegisterUrl("GET", "/Check/GetDetail", &CheckController::GetDetail, &checkController);
+	router->RegisterUrl("POST", "/Check/CancelCheckIn", &CheckController::CancelCheckIn, &checkController);
+	router->RegisterUrl("POST", "/Check/CancelCheckOut", &CheckController::CancelCheckOut, &checkController);
 
 	web::HttpServer server(std::move(router));
 

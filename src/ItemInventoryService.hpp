@@ -159,4 +159,25 @@ public:
 
 		return result;
 	}
+
+	inline std::optional<ItemInventoryView> GetById(const int& _itemInventoryId)
+	{
+		auto dataTable = this->mysqlService.Query("select itemInventory.*, material.name from itemInventory left join material on itemInventory.materialId = material.id where itemInventory.id = ?", _itemInventoryId);				
+
+		std::optional<ItemInventoryView> result;			
+		if(dataTable.size() > 0)
+		{
+			result = 
+			{
+				.id = *reinterpret_cast<const int*>(dataTable.front().at("id")->data()),
+				.wareHouseId =  *reinterpret_cast<const int*>(dataTable.front().at("wareHouseId")->data()),
+				.materialId =  *reinterpret_cast<const int*>(dataTable.front().at("materialId")->data()),
+				.name = dataTable.front().at("name")->data(),
+				.price = *reinterpret_cast<const double*>(dataTable.front().at("cost")->data()),
+				.stock = *reinterpret_cast<const double*>(dataTable.front().at("stock")->data()),
+			};
+		}
+
+		return result;
+	}
 };

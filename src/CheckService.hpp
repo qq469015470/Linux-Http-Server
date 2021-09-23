@@ -1,6 +1,7 @@
 #pragma once 
 
 #include "MysqlService.hpp"
+#include "ItemInventoryService.hpp"
 
 #include <vector>
 #include <chrono>
@@ -26,6 +27,7 @@ struct CheckDetailView
 class CheckService
 {
 private:
+	ItemInventoryService itemInventoryService;
 	MysqlService mysqlService;
 
 public:
@@ -139,5 +141,62 @@ public:
 		}		
 
 		return result;
+	}
+
+
+	std::vector<std::string> GetCancelCheckInSql(const int& _checkInId)
+	{
+		auto datatable = this->mysqlService.Query("select * from checkIn where id = ?", _checkInId);		
+		if(datatable.size() == 0)
+			throw std::logic_error("入库记录不存在!");
+
+		const auto itemInventory = this->itemInventoryService.GetById(*reinterpret_cast<const int*>(datatable.front().at("itemInventoryId")->data()));
+
+		if(!itemInventory.has_value())
+			throw std::logic_error("库存不存在!");
+
+
+		std::stringstream ss;
+		std::vector<std::string> sqlCmd;
+
+		ss << "update itemInventory set stock = stock - " << *reinterpret_cast<const double*>(datatable.front().at("number")->data());
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		ss << "delete from checkIn where id = " << _checkInId;	
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		return sqlCmd;
+	}
+
+	std::vector<std::string> GetCancelCheckOutSql(const int& _checkOutId)
+	{
+		auto datatable = this->mysqlService.Query("select * from checkOut where id = ?", _checkOutId);		
+		if(datatable.size() == 0)
+			throw std::logic_error("出库记录不存在!");
+
+		const auto itemInventory = this->itemInventoryService.GetById(*reinterpret_cast<const int*>(datatable.front().at("itemInventoryId")->data()));
+
+		if(!itemInventory.has_value())
+			throw std::logic_error("库存不存在!");
+
+
+		std::stringstream ss;
+		std::vector<std::string> sqlCmd;
+
+		ss << "update itemInventory set stock = stock + " << *reinterpret_cast<const double*>(datatable.front().at("number")->data());
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		ss << "delete from checkOut where id = " << _checkOutId;	
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		return sqlCmd;
 	}
 };
