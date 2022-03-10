@@ -1,11 +1,12 @@
 #include "web.h"
 
+#include "ExceptionHandler.hpp" // for log stacktrace line number
+
 #include "WareHouseService.hpp"
 #include "ItemInventoryService.hpp"
 #include "MaterialService.hpp"
 #include "CheckService.hpp"
 
-#include "ExceptionHandler.hpp" // for log stacktrace line number
 
 #include <thread>
 #include <chrono>
@@ -484,7 +485,31 @@ int main(int _argc, char* _argv[])
 		if(_response.GetStateCode() == 500)
 		{
 			std::cout << std::endl;
-			std::cout << "url:" << _request.GetUrl() << std::endl;
+			std::cout << "***post***" << std::endl;
+
+			std::string temp;
+
+			temp += _request.GetType() + " ";
+			temp += _request.GetUrl();
+		       	if(_request.GetQueryString() != "")
+				temp += "?" + _request.GetQueryString();
+
+			temp += " ";
+			temp += _request.GetVersion();
+			temp += "\r\n";
+
+			for(const auto& item: _request.GetHeader().GetHttpAttrs())
+			{
+				temp += item.GetKey() + ": " + item.GetValue() + "\r\n";
+			}
+
+			temp += "\r\n";
+
+			temp += std::string(_request.GetBody(), _request.GetBodyLen());
+
+			std::cout << temp << std::endl;
+			std::cout << "**********" << std::endl;
+
 			std::cout << "***backtrace***" << std::endl;
 			std::cout << "thread id:" << std::this_thread::get_id() << std::endl;
 			std::cout << ExceptionHandler::GetLastStackTrace() << std::endl;

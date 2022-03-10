@@ -919,6 +919,11 @@ namespace web
 		{
 			return this->queryString;
 		}
+
+		const std::string& GetVersion() const
+		{
+			return this->version;
+		}
 		
 		const char* GetBody() const
 		{
