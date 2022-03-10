@@ -12,6 +12,8 @@ protected:
 	{
 		MysqlService mysqlService;
 
+		mysqlService.ExecuteCommand("delete from checkIn");
+		mysqlService.ExecuteCommand("delete from checkOut");
 		mysqlService.ExecuteCommand("delete from itemInventory");
 		mysqlService.ExecuteCommand("delete from material");
 		mysqlService.ExecuteCommand("delete from wareHouse");

@@ -21,7 +21,8 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <unistd.h>
-#include <thread>
+//#include <thread>
+#include <future>
 #include <functional>
 #include <sys/eventfd.h>
 #include <fcntl.h>
@@ -1581,6 +1582,8 @@ namespace web
 	private:
 		using SSL_Ptr = std::unique_ptr<SSL, decltype(&SSL_free)>;
 		using SSL_CTX_Ptr = std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)>;
+		using HttpResponseCallBack = std::function<void(const HttpRequest&, const HttpResponse&)>;
+
 		//socket上下文
 		struct SocketContext
 		{
@@ -1604,6 +1607,9 @@ namespace web
 		bool listenSignal;
 		Socket serverSock;
 		int epfd;
+
+		HttpResponseCallBack httpResponseCallBack;
+		
 
 		//返回websocket的Sec-Websocket-Accept码
 		//https://www.zhihu.com/question/67784701
@@ -1902,7 +1908,7 @@ namespace web
 
 				assert(result.second == true);
 			}
-			catch(std::runtime_error& _ex)
+			catch(const std::exception& _ex)
 			{
 				std::cout << "HandleAccept Fail:" << _ex.what() << std::endl;
 				ERR_print_errors_fp(stderr);
@@ -1931,6 +1937,7 @@ namespace web
 				HttpResponse response(101, httpAttrs, nullptr, 0);
 		
 				this->SendHttpResponse(_context, std::move(response));
+				this->httpResponseCallBack(request, response);
 		
 				std::cout << "回复websocket完毕" << std::endl;
 		
@@ -1962,15 +1969,12 @@ namespace web
 	
 				//错误回调
 				std::function<void(std::string_view, std::string_view, SocketContext*)> logError = 
-				[this](std::string_view _url, std::string_view _error, SocketContext* _context)
+				[this, &request](std::string_view _url, std::string_view _error, SocketContext* _context)
 				{
-					std::cout << std::endl;
-					std::cout << "url:" << _url << std::endl;
-					std::cout << "error:" << _error << std::endl;
-		
-					HttpResponse response(500, {}, _error.data(), _error.size());
+					HttpResponse response(500, {{"Content-Type", "text/html; charset=utf-8"}}, _error.data(), _error.size());
 					                             
 					this->SendHttpResponse(_context, std::move(response));
+					this->httpResponseCallBack(request, response);
 				};
 		
 		
@@ -1986,12 +1990,9 @@ namespace web
 					{
 						HttpResponse response = this->router->RunCallback(request.GetType(), request.GetUrl(), params, request.GetHeader());
 						this->SendHttpResponse(_context, std::move(response));
+						this->httpResponseCallBack(request, response);
 					}
-					catch(std::out_of_range& _ex)
-					{
-						logError(request.GetUrl(), _ex.what(), _context);	
-					}
-					catch(std::runtime_error& _ex)
+					catch(const std::exception& _ex)
 					{
 						logError(request.GetUrl(), _ex.what(), _context);	
 					}
@@ -2004,8 +2005,9 @@ namespace web
 						HttpResponse response = this->GetRootFileResponse(request.GetUrl());
 
 						this->SendHttpResponse(_context, std::move(response));
+						this->httpResponseCallBack(request, response);
 					}
-					catch(std::runtime_error& _ex)
+					catch(const std::exception& _ex)
 					{
 						logError(request.GetUrl(), _ex.what(), _context);	
 					}
@@ -2015,6 +2017,7 @@ namespace web
 					HttpResponse response(404, {}, nullptr, 0);
 		        		                             
 		        		this->SendHttpResponse(_context, std::move(response));
+					this->httpResponseCallBack(request, response);
 				}
 				
 				if(request.GetHeader().GetConnection() != std::string("keep-alive"))
@@ -2260,7 +2263,7 @@ namespace web
 						//assert(context->onBusiness == false);
 						context->businessRef++;
 
-						std::thread th([this, &context]()
+						std::future<void> th = std::async([this, &context]()
 						{
 							if(context->isWebsocket)
 							{	
@@ -2287,19 +2290,16 @@ namespace web
 								{
 									this->HandleHttpRequest(context.get());
 								}
-								catch(std::runtime_error& _ex)
+								catch(const std::exception& _ex)
 								{
-									std::cout << _ex.what() << std::endl;
-									//this->CloseSocket(epfd, context->socket->Get());
-									context->isClose = true;
-								}
-	
+									std::cout << "HandleHttpRequestError:" << _ex.what() << std::endl;
+								}	
 							}
 
 							context->businessRef--;
 						});
 
-						th.detach();
+						//th.detach();
 					}
 					else if(events[i].events & EPOLLOUT)
 					{
@@ -2415,7 +2415,8 @@ namespace web
 			ctx(SSL_CTX_new(SSLv23_server_method()), SSL_CTX_free),
 			listenSignal(false),
 			serverSock(AF_INET, SOCK_STREAM, IPPROTO_TCP),
-			epfd(-1)
+			epfd(-1),
+			httpResponseCallBack([](const HttpRequest&, const HttpResponse&){})
 		{
 			//设置listenSock非阻塞
 			const int flags = fcntl(this->serverSock.Get(), F_GETFL, 0);                       //获取文件的flags值。
@@ -2498,6 +2499,11 @@ namespace web
 
 			return std::string(inet_ntoa(sa.sin_addr)) + ":" + std::to_string(ntohs(sa.sin_port));
 		}	
+
+		void SetHttpResponseCallBack(HttpResponseCallBack _func)
+		{
+			this->httpResponseCallBack = _func;
+		}
 	};
 
 	class HttpClient

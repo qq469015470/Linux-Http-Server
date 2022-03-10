@@ -166,6 +166,9 @@ private:
 				case MYSQL_TYPE_DATETIME:
 					buffers.at(i).resize(sizeof(MYSQL_TIME));
 					break;
+				case MYSQL_TYPE_LONGLONG:
+					buffers.at(i).resize(fields[i].length);
+					break;
 				default:
 					throw std::runtime_error("not implement");	
 					break;

@@ -1,11 +1,15 @@
-cmake_minimum_required(VERSION 3.18.1)
+cmake_minimum_required(VERSION 3.5)
 
 project(HttpServer)
 
-SET(CMAKE_BUILD_TYPE "Debug")
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Debug)
+endif()
 
-SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
-SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3")
+if (CMAKE_COMPILER_IS_GNUCXX)
+	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -Wall -g2 -ggdb")
+	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O3 -Wall -g2 -ggdb")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,6 +28,7 @@ find_library(CRYPTO NAMES libcrypto.a)
 target_link_libraries(HttpServer PRIVATE ${SSL})
 target_link_libraries(HttpServer PRIVATE ${CRYPTO})
 target_link_libraries(HttpServer PRIVATE dl)
+target_link_libraries(HttpServer PRIVATE dw)
 target_link_libraries(HttpServer PRIVATE pthread)
 target_link_libraries(HttpServer PRIVATE mysqlclient)
 

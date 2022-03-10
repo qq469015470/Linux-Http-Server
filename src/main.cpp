@@ -5,6 +5,8 @@
 #include "MaterialService.hpp"
 #include "CheckService.hpp"
 
+#include "ExceptionHandler.hpp" // for log stacktrace line number
+
 #include <thread>
 #include <chrono>
 #include <netdb.h>
@@ -75,7 +77,7 @@ public:
 		return date;
 	}
 
-	static DateTime Now()
+	static inline DateTime Now()
 	{
 		DateTime now;
 
@@ -84,7 +86,7 @@ public:
 		return now;
 	}
 
-	DateTime AddYears(int _years)
+	inline DateTime AddYears(int _years)
 	{
 		DateTime temp;
 
@@ -94,7 +96,7 @@ public:
 		return temp;
 	}
 
-	DateTime AddMonths(int _months)
+	inline DateTime AddMonths(int _months)
 	{
 		DateTime temp;
 
@@ -104,7 +106,7 @@ public:
 		return temp;
 	}
 
-	DateTime AddDays(int _days)
+	inline DateTime AddDays(int _days)
 	{
 		DateTime temp;
 
@@ -114,7 +116,7 @@ public:
 		return temp;
 	}
 
-	DateTime AddHours(int _hours)
+	inline DateTime AddHours(int _hours)
 	{
 		DateTime temp;
 
@@ -124,7 +126,7 @@ public:
 		return temp;
 	}
 
-	DateTime AddMinutes(int _minutes)
+	inline DateTime AddMinutes(int _minutes)
 	{
 		DateTime temp;
 
@@ -134,7 +136,7 @@ public:
 		return temp;
 	}
 
-	DateTime AddSeconds(int _seconds)
+	inline DateTime AddSeconds(int _seconds)
 	{
 		DateTime temp;
 
@@ -144,7 +146,7 @@ public:
 		return temp;
 	}
 
-	std::string ToString()
+	inline std::string ToString()
 	{
 		time_t temp;
 		std::tm time;
@@ -428,7 +430,7 @@ public:
 	{
 		CheckService checkService;
 
-		const std::vector<std::string> sql = checkService.GetCancelCheckInSql(std::stoi(_params["_id"].ToString()));	
+		const std::vector<std::string> sql = checkService.GetCancelCheckOutSql(std::stoi(_params["_id"].ToString()));	
 
 		MysqlService mysqlService;
 
@@ -476,6 +478,19 @@ int main(int _argc, char* _argv[])
 	web::HttpServer server(std::move(router));
 
 	server.UseSSL(true);
+
+	server.SetHttpResponseCallBack([](const web::HttpRequest& _request, const web::HttpResponse& _response)
+	{
+		if(_response.GetStateCode() == 500)
+		{
+			std::cout << std::endl;
+			std::cout << "url:" << _request.GetUrl() << std::endl;
+			std::cout << "***backtrace***" << std::endl;
+			std::cout << "thread id:" << std::this_thread::get_id() << std::endl;
+			std::cout << ExceptionHandler::GetLastStackTrace() << std::endl;
+			std::cout << "***************" << std::endl;
+		}
+	});
 
 	server.Listen(ip, std::stoi(port));
 
