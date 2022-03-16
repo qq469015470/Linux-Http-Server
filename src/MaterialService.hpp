@@ -29,7 +29,7 @@ public:
 		return Material
 		{
 			.id = *reinterpret_cast<int*>(datatable.front()["id"]->data()),
-			.name = datatable.front()["id"]->data()
+			.name = datatable.front()["name"]->data()
 		};
 	}
 
@@ -44,15 +44,18 @@ public:
 		return Material
 		{
 			.id = *reinterpret_cast<int*>(datatable.front()["id"]->data()),
-			.name = datatable.front()["id"]->data()
+			.name = datatable.front()["name"]->data()
 		};
 	}
 
 	inline std::vector<std::string> GetAddMaterialSql(const int& _materialId, std::string_view _materialName)
 	{
+		if(_materialName.empty())
+			throw std::logic_error("货物名称不能为空");
+
 		std::stringstream sqlCmd;
 
-		sqlCmd << "insert into material(id, name) values(" << _materialId <<  ",'" << this->mysqlService.GetSafeSqlString(_materialName) << "')";
+		sqlCmd << "insert into material(id, name) values(" << _materialId <<  ",'" << this->mysqlService.GetSafeSqlString(_materialName) << "');";
 
 		return {sqlCmd.str()};
 	}

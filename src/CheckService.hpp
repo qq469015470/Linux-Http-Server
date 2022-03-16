@@ -159,12 +159,17 @@ public:
 		std::stringstream ss;
 		std::vector<std::string> sqlCmd;
 
-		ss << "update itemInventory set stock = stock - " << *reinterpret_cast<const double*>(datatable.front().at("number")->data());
+		ss << "update itemInventory set stock = stock - " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << " where id = " << itemInventory->id << " and stock >= " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << ";";
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
 
-		ss << "delete from checkIn where id = " << _checkInId;	
+		ss << "if ROW_COUNT() <> 1 then SIGNAL SQLSTATE 'HY000' SET MESSAGE_TEXT = '库存不足'; end if;";
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		ss << "delete from checkIn where id = " << _checkInId << ";";
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
@@ -187,7 +192,7 @@ public:
 		std::stringstream ss;
 		std::vector<std::string> sqlCmd;
 
-		ss << "update itemInventory set stock = stock + " << *reinterpret_cast<const double*>(datatable.front().at("number")->data());
+		ss << "update itemInventory set stock = stock + " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << " where id = " << itemInventory->id;
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");

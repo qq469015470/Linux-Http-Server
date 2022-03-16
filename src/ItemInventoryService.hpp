@@ -36,11 +36,11 @@ public:
 		std::vector<std::string> result;
 		std::stringstream sqlCmd;
 
-		sqlCmd << "insert into checkIn(itemInventoryId, number, time)values(" << _itemInventoryId << "," << _stock << ",now())";
+		sqlCmd << "insert into checkIn(itemInventoryId, number, time)values(" << _itemInventoryId << "," << _stock << ",now());";
 		result.emplace_back(sqlCmd.str());
 		sqlCmd.str("");
 
-		sqlCmd << "update itemInventory set stock = stock + " << _stock << " where id = " << _itemInventoryId; 
+		sqlCmd << "update itemInventory set stock = stock + " << _stock << " where id = " << _itemInventoryId << ";"; 
 		result.emplace_back(sqlCmd.str());
 		sqlCmd.str("");
 
@@ -63,11 +63,11 @@ public:
 		std::vector<std::string> result;
 		std::stringstream sqlCmd;
 
-		sqlCmd << "insert into checkOut(itemInventoryId, number, time)values(" << _itemInventoryId << "," << _stock << ",now())";
+		sqlCmd << "insert into checkOut(itemInventoryId, number, time)values(" << _itemInventoryId << "," << _stock << ",now());";
 		result.emplace_back(sqlCmd.str());
 		sqlCmd.str("");
 
-		sqlCmd << "update itemInventory set stock = stock - " << _stock << " where id = " << _itemInventoryId; 
+		sqlCmd << "update itemInventory set stock = stock - " << _stock << " where id = " << _itemInventoryId << " and stock >= " << _stock << ";"; 
 		result.emplace_back(sqlCmd.str());
 		sqlCmd.str("");
 

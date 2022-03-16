@@ -261,14 +261,32 @@ public:
 
 	inline void ExecuteCommandWithTran(const std::vector<std::string>& _cmdStrs)
 	{
-		this->ExecuteCommand("START TRANSACTION");
+		const std::string threadId = std::to_string(std::hash<std::thread::id>()(std::this_thread::get_id()));
+		const std::string procedureName = "TEST_" + threadId;
+		this->ExecuteCommand("DROP PROCEDURE IF EXISTS " + procedureName);
+		std::string baseSql
+		(
+			
+			std::string("CREATE PROCEDURE ") + procedureName + "()\r\n"
+		);
+
+
+		baseSql += 
+			"BEGIN\r\n"
+			"START TRANSACTION;\r\n";
 
 		for(const auto& item: _cmdStrs)
 		{
-			this->ExecuteCommand(item);
+			baseSql += item;
+			baseSql += "\r\n";
 		}
 
-		this->ExecuteCommand("COMMIT");
+		baseSql += "COMMIT;\r\n";
+		baseSql += "END\r\n";
+
+		this->ExecuteCommand(baseSql);
+		this->ExecuteCommand(std::string("CALL ") + procedureName + "()");
+		this->ExecuteCommand(std::string("DROP PROCEDURE ") + procedureName);
 	}
 
 	template<typename... ARGS>	

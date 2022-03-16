@@ -1,6 +1,19 @@
 #include <gtest/gtest.h>
 #include "../src/MysqlService.hpp"
 
+TEST(MysqlServiceTest, IF_THEN)
+{
+	MysqlService service;
+
+	const std::string sqlCmd = 
+	"IF 1 <> 1 THEN\r\n"
+	"SIGNAL SQLSTATE '45000'\r\n"
+ 	"SET MESSAGE_TEXT = 'Order No not found in orders table';\r\n"
+	"END IF;";
+
+	service.ExecuteCommandWithTran({sqlCmd});
+}
+
 TEST(MysqlServiceTest, DropTable)
 {
 	MysqlService service;
