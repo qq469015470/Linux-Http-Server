@@ -192,12 +192,17 @@ public:
 		std::stringstream ss;
 		std::vector<std::string> sqlCmd;
 
-		ss << "update itemInventory set stock = stock + " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << " where id = " << itemInventory->id;
+		ss << "update itemInventory set stock = stock + " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << " where id = " << itemInventory->id << ";";
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
 
-		ss << "delete from checkOut where id = " << _checkOutId;	
+		ss << "if ROW_COUNT() <> 1 then SIGNAL SQLSTATE 'HY000' SET MESSAGE_TEXT = '取消出库失败'; end if;";
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		ss << "delete from checkOut where id = " << _checkOutId << ";";	
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
