@@ -4,9 +4,6 @@
 
 class ItemInventoryServiceTest: public testing::Test
 {
-private:
-	MysqlService mysqlService;
-
 protected:
 	virtual void SetUp()
 	{

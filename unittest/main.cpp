@@ -5,6 +5,7 @@
 #include "HttpRequestTest.cpp"
 #include "HttpResponseTest.cpp"
 #include "MysqlServiceTest.cpp"
+#include "WareHouseServiceTest.cpp"
 #include "MaterialServiceTest.cpp"
 #include "ItemInventoryServiceTest.cpp"
 

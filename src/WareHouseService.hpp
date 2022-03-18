@@ -31,6 +31,9 @@ public:
 
 	void AddWareHouse(std::string_view _name)
 	{
+		if(_name.size() == 0)
+			throw std::logic_error("仓库名称不能为空!");
+
 		auto dataTable = this->mysqlService.Query("select 1 from wareHouse where name = ?", _name);
 		if(dataTable.size() > 0)
 			throw std::logic_error("仓库名称不能重复!");
