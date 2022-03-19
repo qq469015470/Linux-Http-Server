@@ -71,6 +71,18 @@ TEST_F(MaterialServiceTest, AddMaterial)
 	EXPECT_STREQ("newAddMaterial", material->name.c_str());
 }
 
+TEST_F(MaterialServiceTest, AddRepeatNameMaterial)
+{
+	MaterialService materialService;
+	MysqlService mysqlService;
+
+	const int nextInsertId = mysqlService.GetNextInsertId("material");
+	EXPECT_ANY_THROW
+	({
+		const std::vector<std::string> sql = materialService.GetAddMaterialSql(nextInsertId, "AMaterial");
+	});
+}
+
 TEST_F(MaterialServiceTest, AddNullNameMaterial)
 {
 	MaterialService materialService;
@@ -81,5 +93,41 @@ TEST_F(MaterialServiceTest, AddNullNameMaterial)
 	EXPECT_ANY_THROW
 	({
 		const std::vector<std::string> sql = materialService.GetAddMaterialSql(nextInsertId, "");
+	});
+}
+
+TEST_F(MaterialServiceTest, EditMaterial)
+{
+	MaterialService materialService;
+	MysqlService mysqlService;
+
+	mysqlService.ExecuteCommandWithTran(materialService.GetEditMaterialSql(101, "editMaterial"));
+
+	const std::optional<Material> view = materialService.GetMaterial(101);
+
+	ASSERT_TRUE(view.has_value());
+	EXPECT_STREQ("editMaterial", view->name.c_str());
+	EXPECT_EQ(101, view->id);
+}
+
+TEST_F(MaterialServiceTest, EditMaterialNullName)
+{
+	MaterialService materialService;
+	MysqlService mysqlService;
+
+	EXPECT_ANY_THROW
+	({
+		materialService.GetEditMaterialSql(101, "");
+	});
+}
+
+TEST_F(MaterialServiceTest, EditMaterialEmptyId)
+{
+	MaterialService materialService;
+	MysqlService mysqlService;
+
+	EXPECT_ANY_THROW
+	({
+		materialService.GetEditMaterialSql(9999, "asdasd");
 	});
 }

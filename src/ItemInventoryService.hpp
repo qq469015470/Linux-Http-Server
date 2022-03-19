@@ -126,13 +126,14 @@ public:
 		std::stringstream sqlCmd;
 		std::vector<std::string> result;
 
-		sqlCmd << "update itemInventory set cost = " << _price << " where id = " << _itemInventoryId;
+		sqlCmd << "update itemInventory set cost = " << _price << " where id = " << _itemInventoryId << ";";
 		result.emplace_back(sqlCmd.str());
 		sqlCmd.str("");
 
-		sqlCmd << "update material set name = \"" << this->mysqlService.GetSafeSqlString(_name) << "\" where id = " << material->id ;
-		result.emplace_back(sqlCmd.str());
-		sqlCmd.str("");
+		for(const auto& item: this->materialService.GetEditMaterialSql(material->id, _name))
+		{
+			result.emplace_back(item);
+		}
 
 		return result;
 	}
