@@ -8,6 +8,7 @@
 #include "WareHouseServiceTest.cpp"
 #include "MaterialServiceTest.cpp"
 #include "ItemInventoryServiceTest.cpp"
+#include "CheckServiceTest.cpp"
 
 int main(int _argc, char** _argv)
 {
