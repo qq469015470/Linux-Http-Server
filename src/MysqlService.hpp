@@ -251,9 +251,9 @@ public:
 			const std::string errStr = mysql_error(&this->mysql);
 			
 			if(errStr.empty())
-				throw std::runtime_error("MYSQL query is error");
+				throw std::logic_error("MYSQL query is error");
 			else
-				throw std::runtime_error(errStr);
+				throw std::logic_error(errStr);
 		}
 
 		return mysql_insert_id(&this->mysql);

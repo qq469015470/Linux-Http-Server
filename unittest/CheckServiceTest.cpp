@@ -15,9 +15,10 @@ protected:
 		mysqlService.ExecuteCommand("delete from wareHouse");
 
 		mysqlService.ExecuteCommand("insert into wareHouse(id, name) values(99, 'testWareHouse')");
-		mysqlService.ExecuteCommand("insert into material(id, name) values(101, 'testMaterial')");
+		mysqlService.ExecuteCommand("insert into material(id, name) values(101, 'AMaterial')");
+		mysqlService.ExecuteCommand("insert into material(id, name) values(102, 'BMaterial')");
 		mysqlService.ExecuteCommand("insert into itemInventory(id, wareHouseId, materialId, cost, stock) values(201, 99, 101, 12.45, 0)");
-		mysqlService.ExecuteCommand("insert into itemInventory(id, wareHouseId, materialId, cost, stock) values(202, 99, 101, 30, 1)");
+		mysqlService.ExecuteCommand("insert into itemInventory(id, wareHouseId, materialId, cost, stock) values(202, 99, 102, 30, 1)");
 		mysqlService.ExecuteCommand("insert into checkIn(id, itemInventoryId, number, time) values(301, 202, 1, '2000-01-01 12:07:49')");
 		mysqlService.ExecuteCommand("insert into checkIn(id, itemInventoryId, number, time) values(302, 202, 1, '2000-01-02 20:00:01')");
 		mysqlService.ExecuteCommand("insert into checkOut(id, itemInventoryId, number, time) values(401, 202, 1, '2000-01-05 07:35:22')");
@@ -36,7 +37,7 @@ TEST_F(CheckServiceTest, Get)
 	const std::vector<CheckView> views = checkService.GetCheck(99, "2000-01-01 00:00:00", "2000-01-02 00:00:00");
 
 	EXPECT_EQ(1, views.size());
-	EXPECT_STREQ("testMaterial", views.front().name.c_str());
+	EXPECT_STREQ("BMaterial", views.front().name.c_str());
 	EXPECT_EQ(30, views.front().cost);
 	EXPECT_EQ(1, views.front().checkIn);
 	EXPECT_EQ(0, views.front().checkOut);

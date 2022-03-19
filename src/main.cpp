@@ -208,31 +208,45 @@ private:
 public:
 	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		WareHouseService wareHouseService;
-
-		std::vector<WareHouse> warehouses = wareHouseService.GetWareHouses();
-
-		web::JsonObj result;
-		for(const auto& item: warehouses)
+		try
 		{
-			web::JsonObj temp;
+			WareHouseService wareHouseService;
 
-			temp["id"] = std::to_string(item.id);
-			temp["name"] = item.name;
+			std::vector<WareHouse> warehouses = wareHouseService.GetWareHouses();
 
-			result.Push(std::move(temp));
+			web::JsonObj result;
+			for(const auto& item: warehouses)
+			{
+				web::JsonObj temp;
+
+				temp["id"] = std::to_string(item.id);
+				temp["name"] = item.name;
+
+				result.Push(std::move(temp));
+			}
+
+			return web::Json(result);
 		}
-
-		return web::Json(result);
+		catch(const std::logic_error& _ex)
+		{
+			return web::Json(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 
 	web::HttpResponse Add(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		WareHouseService wareHouseService;
+		try
+		{
+			WareHouseService wareHouseService;
 
-		wareHouseService.AddWareHouse(_params["_wareHouse"]["name"].ToString());
+			wareHouseService.AddWareHouse(_params["_wareHouse"]["name"].ToString());
 
-		return JsonData(JsonDataCode::Success, nullptr, "添加成功");
+			return JsonData(JsonDataCode::Success, nullptr, "添加成功");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 };
 
@@ -241,109 +255,144 @@ class ItemInventoryController
 public:
 	web::HttpResponse Add(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		ItemInventoryService itemInventoryService;
-	       	
-		std::vector<std::string> sqlCmds;
-	       
-		sqlCmds	= itemInventoryService.GetAddItemInventorySql
-							(
-								_params["_materialName"].ToString(), 
-								std::stoi(_params["_itemInventory"]["wareHouseId"].ToString()), 
-								std::stod(_params["_itemInventory"]["cost"].ToString())
-							);
-		MysqlService mysqlService;
-
-		const int& itemInventoryId = mysqlService.GetNextInsertId("itemInventory");
-
-		for(const auto& item: itemInventoryService.GetCheckInSql(itemInventoryId, std::stod(_params["_itemInventory"]["stock"].ToString()), false))
+		try
 		{
-			sqlCmds.emplace_back(item);
-		}
-		
-		mysqlService.ExecuteCommandWithTran(sqlCmds);
+			ItemInventoryService itemInventoryService;
+	       		
+			std::vector<std::string> sqlCmds;
+	       
+			sqlCmds	= itemInventoryService.GetAddItemInventorySql
+								(
+									_params["_materialName"].ToString(), 
+									std::stoi(_params["_itemInventory"]["wareHouseId"].ToString()), 
+									std::stod(_params["_itemInventory"]["cost"].ToString())
+								);
+			MysqlService mysqlService;
 
-		return JsonData(JsonDataCode::Success, nullptr, "添加成功");	
+			const int& itemInventoryId = mysqlService.GetNextInsertId("itemInventory");
+
+			for(const auto& item: itemInventoryService.GetCheckInSql(itemInventoryId, std::stod(_params["_itemInventory"]["stock"].ToString()), false))
+			{
+				sqlCmds.emplace_back(item);
+			}
+			
+			mysqlService.ExecuteCommandWithTran(sqlCmds);
+
+			return JsonData(JsonDataCode::Success, nullptr, "添加成功");	
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 
 
 	web::HttpResponse Edit(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		ItemInventoryService itemInventoryService;
+		try
+		{
+			ItemInventoryService itemInventoryService;
 
-		std::vector<std::string> sqlCmds;
+			std::vector<std::string> sqlCmds;
 
-		sqlCmds = itemInventoryService.GetEditItemInventorySql
-				(
-				 	std::stoi(_params["_itemInventoryId"].ToString()),
-					_params["_name"].ToString(),
-					std::stod(_params["_price"].ToString())
-				);
+			sqlCmds = itemInventoryService.GetEditItemInventorySql
+					(
+					 	std::stoi(_params["_itemInventoryId"].ToString()),
+						_params["_name"].ToString(),
+						std::stod(_params["_price"].ToString())
+					);
 
 
-		MysqlService mysqlService;
+			MysqlService mysqlService;
 
-		mysqlService.ExecuteCommandWithTran(sqlCmds);
+			mysqlService.ExecuteCommandWithTran(sqlCmds);
 
-		return JsonData(JsonDataCode::Success, nullptr, "修改成功");	
+			return JsonData(JsonDataCode::Success, nullptr, "修改成功");	
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 
 	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		ItemInventoryService itemInventoryService;
-
-		std::vector<ItemInventoryView> view = itemInventoryService.GetByWareHouseId(std::stoi(_params["_houseId"].ToString()));
-
-		web::JsonObj data;
-		for(const auto& item: view)
+		try
 		{
-			web::JsonObj temp;
+			ItemInventoryService itemInventoryService;
 
-			temp["id"] = item.id;
-			temp["wareHouseId"] = item.wareHouseId;
-			temp["materialId"] = item.materialId;
-			temp["name"] = item.name;
-			temp["price"] = item.price;
-			temp["stock"] = item.stock;
+			std::vector<ItemInventoryView> view = itemInventoryService.GetByWareHouseId(std::stoi(_params["_houseId"].ToString()));
 
-			data.Push(std::move(temp));
+			web::JsonObj data;
+			for(const auto& item: view)
+			{
+				web::JsonObj temp;
+
+				temp["id"] = item.id;
+				temp["wareHouseId"] = item.wareHouseId;
+				temp["materialId"] = item.materialId;
+				temp["name"] = item.name;
+				temp["price"] = item.price;
+				temp["stock"] = item.stock;
+
+				data.Push(std::move(temp));
+			}
+
+			std::cout << "will response:" << std::endl;
+			std::cout << data.ToJson() << std::endl;
+			
+			return JsonData(JsonDataCode::Success, &data, "");
 		}
-
-		std::cout << "will response:" << std::endl;
-		std::cout << data.ToJson() << std::endl;
-		
-		return JsonData(JsonDataCode::Success, &data, "");
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 
 	web::HttpResponse CheckIn(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
-		const double number = std::stod(_params["_number"].ToString());
+		try
+		{
+			const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
+			const double number = std::stod(_params["_number"].ToString());
 
-		ItemInventoryService itemInventoryService; 
+			ItemInventoryService itemInventoryService; 
 
-		const std::vector<std::string> sqlCmds = itemInventoryService.GetCheckInSql(itemInventoryId, number);
+			const std::vector<std::string> sqlCmds = itemInventoryService.GetCheckInSql(itemInventoryId, number);
 
-		MysqlService mysqlService;
+			MysqlService mysqlService;
 
-		mysqlService.ExecuteCommandWithTran(sqlCmds);
+			mysqlService.ExecuteCommandWithTran(sqlCmds);
 
-		return JsonData(JsonDataCode::Success, nullptr, "");
+			return JsonData(JsonDataCode::Success, nullptr, "");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 
 	web::HttpResponse CheckOut(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
-		const double number = std::stod(_params["_number"].ToString());
+		try
+		{
+			const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
+			const double number = std::stod(_params["_number"].ToString());
 
-		ItemInventoryService itemInventoryService; 
+			ItemInventoryService itemInventoryService; 
 
-		const std::vector<std::string> sqlCmds = itemInventoryService.GetCheckOutSql(itemInventoryId, number);
+			const std::vector<std::string> sqlCmds = itemInventoryService.GetCheckOutSql(itemInventoryId, number);
 
-		MysqlService mysqlService;
+			MysqlService mysqlService;
 
-		mysqlService.ExecuteCommandWithTran(sqlCmds);
+			mysqlService.ExecuteCommandWithTran(sqlCmds);
 
-		return JsonData(JsonDataCode::Success, nullptr, "");
+			return JsonData(JsonDataCode::Success, nullptr, "");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 };
 
@@ -352,92 +401,120 @@ class CheckController
 public:
 	web::HttpResponse Get(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		DateTime start(DateTime::Convert(_params["_date"].ToString()));
-		DateTime end(start.AddDays(1));
-
-		CheckService checkService;	
-
-		const std::vector<CheckView> view = checkService.GetCheck
-							(
-								std::stoi(_params["_houseId"].ToString()),
-								start.ToString(),
-								end.ToString()
-							);
-
-		web::JsonObj result;
-
-		result.SetArrayNull();
-		for(const auto& item: view)
+		try
 		{
-			web::JsonObj temp;
+			DateTime start(DateTime::Convert(_params["_date"].ToString()));
+			DateTime end(start.AddDays(1));
 
-			temp["id"] = item.id;
-			temp["name"] = item.name;
-			temp["checkIn"] = item.checkIn;
-			temp["checkOut"] = item.checkOut;
-			temp["cost"] = item.cost;
+			CheckService checkService;	
 
-			result.Push(std::move(temp));
-		}
-
-		return JsonData(JsonDataCode::Success, &result, "");
-	}
-
-	web::HttpResponse GetDetail(const web::UrlParam& _params, const web::HttpHeader& _header)
-	{
-		DateTime start(DateTime::Convert(_params["_date"].ToString()));
-		DateTime end(start.AddDays(1));
-
-		CheckService checkService;
-
-		const std::vector<CheckDetailView> view = checkService.GetCheckDetail
+			const std::vector<CheckView> view = checkService.GetCheck
 								(
-									std::stoi(_params["_itemInventoryId"].ToString()),
+									std::stoi(_params["_houseId"].ToString()),
 									start.ToString(),
 									end.ToString()
 								);
 
-		web::JsonObj result;
+			web::JsonObj result;
 
-		result.SetArrayNull();
-		for(const auto& item: view)
-		{
-			web::JsonObj temp;
+			result.SetArrayNull();
+			for(const auto& item: view)
+			{
+				web::JsonObj temp;
 
-			temp["id"] = item.id;
-			temp["number"] = item.number;
-			temp["time"] = item.time;
+				temp["id"] = item.id;
+				temp["name"] = item.name;
+				temp["checkIn"] = item.checkIn;
+				temp["checkOut"] = item.checkOut;
+				temp["cost"] = item.cost;
 
-			result.Push(std::move(temp));
+				result.Push(std::move(temp));
+			}
+
+			return JsonData(JsonDataCode::Success, &result, "");
 		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
+	}
 
-		return JsonData(JsonDataCode::Success, &result, "");
+	web::HttpResponse GetDetail(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		try
+		{
+			DateTime start(DateTime::Convert(_params["_date"].ToString()));
+			DateTime end(start.AddDays(1));
+	
+			CheckService checkService;
+	
+			const std::vector<CheckDetailView> view = checkService.GetCheckDetail
+									(
+										std::stoi(_params["_itemInventoryId"].ToString()),
+										start.ToString(),
+										end.ToString()
+									);
+	
+			web::JsonObj result;
+	
+			result.SetArrayNull();
+			for(const auto& item: view)
+			{
+				web::JsonObj temp;
+	
+				temp["id"] = item.id;
+				temp["number"] = item.number;
+				temp["time"] = item.time;
+	
+				result.Push(std::move(temp));
+			}
+	
+			return JsonData(JsonDataCode::Success, &result, "");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 
 	web::HttpResponse CancelCheckIn(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		CheckService checkService;
+		try
+		{
+			CheckService checkService;
 
-		const std::vector<std::string> sql = checkService.GetCancelCheckInSql(std::stoi(_params["_id"].ToString()));	
+			const std::vector<std::string> sql = checkService.GetCancelCheckInSql(std::stoi(_params["_id"].ToString()));	
 
-		MysqlService mysqlService;
+			MysqlService mysqlService;
 
-		mysqlService.ExecuteCommandWithTran(sql);
+			mysqlService.ExecuteCommandWithTran(sql);
 
-		return JsonData(JsonDataCode::Success, nullptr, "");
+			return JsonData(JsonDataCode::Success, nullptr, "");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 
 	web::HttpResponse CancelCheckOut(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
-		CheckService checkService;
+		try
+		{
+			CheckService checkService;
 
-		const std::vector<std::string> sql = checkService.GetCancelCheckOutSql(std::stoi(_params["_id"].ToString()));	
+			const std::vector<std::string> sql = checkService.GetCancelCheckOutSql(std::stoi(_params["_id"].ToString()));	
 
-		MysqlService mysqlService;
+			MysqlService mysqlService;
 
-		mysqlService.ExecuteCommandWithTran(sql);
+			mysqlService.ExecuteCommandWithTran(sql);
 
-		return JsonData(JsonDataCode::Success, nullptr, "");
+			return JsonData(JsonDataCode::Success, nullptr, "");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
 	}
 };
 
