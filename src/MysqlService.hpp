@@ -11,6 +11,8 @@
 class MysqlService
 {
 private:
+	static inline std::string dataBaseName = "";
+
 	MYSQL mysql;
 	MYSQL_STMT* stmt;
 
@@ -153,6 +155,7 @@ private:
 			{
 				case MYSQL_TYPE_STRING:
 				case MYSQL_TYPE_VAR_STRING:
+				case MYSQL_TYPE_NEWDECIMAL:
 					buffers.at(i).resize(fields[i].length);
 					binds.at(i).buffer_length = buffers.at(i).size();
 					break;
@@ -201,7 +204,11 @@ private:
 			for(int i = 0; i < num_fields; i++)
 			{
 				std::optional<std::vector<char>> value;
-				value = buffers[i];
+
+				if(!*binds.at(i).is_null)
+				{
+					value = buffers[i];
+				}
 
 				const std::pair<decltype(temp)::iterator, bool> insertRes = temp.insert(std::pair(fieldMap.at(i), std::move(value)));
 
@@ -220,7 +227,7 @@ public:
 	MysqlService()
 	{
 		mysql_init(&this->mysql);
-		mysql_real_connect(&this->mysql, "localhost", "root", "123456", "dangkou", 3306, NULL, 0);
+		mysql_real_connect(&this->mysql, "localhost", "root", "123456", std::remove_pointer<decltype(this)>::type::dataBaseName.c_str(), 3306, NULL, 0);
 
 		this->stmt = mysql_stmt_init(&this->mysql);
 		if(!this->stmt)
@@ -233,6 +240,11 @@ public:
 	{
 		mysql_stmt_close(this->stmt);
 		mysql_close(&this->mysql);
+	}
+
+	static inline void SetDataBase(std::string_view _dataBaseName)
+	{
+		dataBaseName = _dataBaseName;
 	}
 
 	template<typename... ARGS>
@@ -315,6 +327,13 @@ public:
 		auto datatable = this->Query("SELECT AUTO_INCREMENT FROM information_schema.`TABLES` WHERE TABLE_SCHEMA = database() AND TABLE_NAME = ?", _table.data());
 
 		return *reinterpret_cast<long*>(datatable[0]["AUTO_INCREMENT"].value().data());
+	}
+
+	inline std::string GetUUID()
+	{
+		auto datatable = this->Query("SELECT uuid()");
+
+		return datatable[0]["uuid()"].value().data();
 	}
 	
 	inline std::string GetSafeSqlString(std::string_view _sqlStr)

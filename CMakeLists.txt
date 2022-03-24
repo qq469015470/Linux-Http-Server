@@ -31,6 +31,7 @@ target_link_libraries(HttpServer PRIVATE dl)
 target_link_libraries(HttpServer PRIVATE dw)
 target_link_libraries(HttpServer PRIVATE pthread)
 target_link_libraries(HttpServer PRIVATE mysqlclient)
+target_link_libraries(HttpServer PRIVATE z)
 
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/src/cert.key DESTINATION ${EXECUTABLE_OUTPUT_PATH})
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/src/cert.pem DESTINATION ${EXECUTABLE_OUTPUT_PATH})

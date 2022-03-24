@@ -229,7 +229,7 @@ public:
 		}
 		catch(const std::logic_error& _ex)
 		{
-			return web::Json(JsonDataCode::Error, nullptr, _ex.what());
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
 		}
 	}
 

@@ -14,8 +14,8 @@ protected:
 		mysqlService.ExecuteCommand("delete from material");
 		mysqlService.ExecuteCommand("delete from wareHouse");
 
-		mysqlService.ExecuteCommand("insert into wareHouse(id, name) values(501, 'test1')");
-		mysqlService.ExecuteCommand("insert into wareHouse(id, name) values(502, 'test2')");
+		mysqlService.ExecuteCommand("insert into wareHouse(id, name) values('e0b0e624-aa61-11ec-acff-000c29910818', 'test1')");
+		mysqlService.ExecuteCommand("insert into wareHouse(id, name) values('e1de2dd3-aa61-11ec-acff-000c29910818', 'test2')");
 	}
 
 	inline virtual void TearDown() override
@@ -32,8 +32,8 @@ TEST_F(WareHouseServiceTest, GetWareHouse)
 
 	EXPECT_EQ(2, wareHouses.size());
 
-	EXPECT_EQ(501, wareHouses.at(0).id);
-	EXPECT_EQ(502, wareHouses.at(1).id);
+	EXPECT_EQ("e0b0e624-aa61-11ec-acff-000c29910818", wareHouses.at(0).id);
+	EXPECT_EQ("e1de2dd3-aa61-11ec-acff-000c29910818", wareHouses.at(1).id);
 
 	EXPECT_STREQ("test1", wareHouses.at(0).name.c_str());
 	EXPECT_STREQ("test2", wareHouses.at(1).name.c_str());

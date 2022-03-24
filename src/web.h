@@ -33,6 +33,8 @@
 #include <openssl/sha.h>
 #include <openssl/err.h>
 
+#include <zlib.h>
+
 namespace web
 {
 	static std::string UrlDecode(std::string_view _urlCode)
@@ -769,6 +771,31 @@ namespace web
 			return this->GetAttrValue(this->attrs, "Sec-WebSocket-Key");
 		}
 
+		std::unordered_set<std::string> GetAcceptEncoding() const
+		{
+			const std::string value = this->GetAttrValue(this->attrs, "Accept-Encoding");
+
+			
+			std::unordered_set<std::string> result;
+
+			std::size_t pos(-1);
+			std::size_t lastPos(0);
+			do
+			{
+				lastPos = pos + 1;
+				pos = value.find(",", pos + 1);
+				std::string curVal = value.substr(lastPos, pos - lastPos);
+				std::cout << "encoding: " << curVal << std::endl;
+				curVal.erase(0, curVal.find_first_not_of(" \t")); // 去掉头部空格
+				curVal.erase(curVal.find_last_not_of(" \t") + 1); // 去掉尾部空格
+				result.insert(curVal);
+			}
+			while(pos != std::string::npos);
+
+			return result;
+		}
+	
+
 		const char* GetCookie(std::string_view _key) const
 		{
 			auto iter = this->cookies.find(_key.data());
@@ -777,7 +804,7 @@ namespace web
 			else
 				return iter->second.c_str(); 
 		}
-	
+
 		std::vector<HttpAttr> GetHttpAttrs() const
 		{
 			std::vector<HttpAttr> attrs;
@@ -970,7 +997,7 @@ namespace web
 		}
 
 	public:
-		HttpResponse(int _stateCode,const std::vector<HttpAttr>& _httpAttrs, const char* _body, size_t _bodyLen):
+		HttpResponse(int _stateCode, const std::vector<HttpAttr>& _httpAttrs, const char* _body, size_t _bodyLen):
 			stateCode(_stateCode),
 			content({'\0'})
 		{
@@ -1827,15 +1854,47 @@ namespace web
 			return bytes;
 		}
 
-		static inline HttpResponse GetRootFileResponse(std::string_view _view)
+		static inline int GzipCompress(unsigned char* data, size_t ndata, unsigned char* zdata, size_t *nzdata)
+		{
+			z_stream c_stream;
+			int err = 0;
+
+			if (data && ndata > 0) {
+				c_stream.zalloc = NULL;
+				c_stream.zfree = NULL;
+				c_stream.opaque = NULL;
+				if (deflateInit2(&c_stream, Z_BEST_COMPRESSION, Z_DEFLATED,
+					MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return -1;
+				c_stream.next_in = data;
+				c_stream.avail_in = ndata;
+				c_stream.next_out = zdata;
+				c_stream.avail_out = *nzdata;
+				while (c_stream.avail_in != 0 && c_stream.total_out < *nzdata) {
+					if (deflate(&c_stream, Z_NO_FLUSH) != Z_OK) return -1;
+				}
+				if (c_stream.avail_in != 0) return c_stream.avail_in;
+				for (;;) {
+					if ((err = deflate(&c_stream, Z_FINISH)) == Z_STREAM_END) break;
+					if (err != Z_OK) return -1;
+				}
+				if (deflateEnd(&c_stream) != Z_OK) return -1;
+				*nzdata = c_stream.total_out;
+				return 0;
+			}
+
+			return -1;
+		}
+
+		static inline HttpResponse GetRootFileResponse(const HttpRequest& _request)
 		{
 			const std::string root = "wwwroot/";
 
-			std::ifstream file(root + _view.data());
+			std::ifstream file(root + _request.GetUrl());
 
 			if(file.is_open())
 			{
-				const std::vector<char> body =	HttpServer::GetRootFile(file);
+				std::vector<char> body(HttpServer::GetRootFile(file));
+				size_t bodyLen(body.size());
 				file.close();
 
 				std::vector<HttpAttr> attrs = 
@@ -1843,8 +1902,25 @@ namespace web
 					//{"Cache-Control", "no-store"}
 					{"Cache-Control", "max-age=315360000"}
 				};
+
+				const std::unordered_set<std::string> acceptEncoding = _request.GetHeader().GetAcceptEncoding();
+				if(body.size() > 1024 && acceptEncoding.find("gzip") != acceptEncoding.end())
+				{
+					attrs.push_back({"Content-Encoding", "gzip"});
+
+					std::vector<char> compressByte;
+					size_t destLen(body.size() * 2);
+					compressByte.resize(body.size() * 2);
+
+					GzipCompress(reinterpret_cast<unsigned char*>(body.data()), body.size(), reinterpret_cast<unsigned char*>(compressByte.data()), &destLen);
+					if(destLen < 0)
+						throw std::runtime_error("zip faild");
+
+					body = std::move(compressByte);
+					bodyLen = destLen;
+				}
 		
-				return HttpResponse(200, std::move(attrs), body.data(), body.size());
+				return HttpResponse(200, std::move(attrs), body.data(), bodyLen);
 			}
 			else
 			{
@@ -2007,7 +2083,7 @@ namespace web
 				{
 					try
 					{
-						HttpResponse response = this->GetRootFileResponse(request.GetUrl());
+						HttpResponse response(this->GetRootFileResponse(request));
 
 						this->SendHttpResponse(_context, std::move(response));
 						this->httpResponseCallBack(request, response);

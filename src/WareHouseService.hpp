@@ -6,7 +6,7 @@
 
 struct WareHouse
 {
-	int32_t id;
+	std::string id;
 	std::string name;
 };
 
@@ -23,7 +23,7 @@ public:
 		std::vector<WareHouse> result;
 		for(const auto& item: dataTable)
 		{
-			result.push_back({*reinterpret_cast<const int32_t*>(item.at("id").value().data()), item.at("name").value().data()});	
+			result.push_back({item.at("id").value().data(), item.at("name").value().data()});	
 		}
 
 		return result;	
@@ -38,6 +38,6 @@ public:
 		if(dataTable.size() > 0)
 			throw std::logic_error("仓库名称不能重复!");
 
-		this->mysqlService.ExecuteCommand("insert into wareHouse(name) values(?)", _name);
+		this->mysqlService.ExecuteCommand("insert into wareHouse(id, name) values(uuid(), ?)", _name);
 	}
 };

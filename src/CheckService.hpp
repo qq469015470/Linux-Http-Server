@@ -10,7 +10,7 @@
 
 struct CheckView
 {
-	int id;
+	std::string id;
 	std::string name;
 	double checkIn;
 	double checkOut;
@@ -19,7 +19,7 @@ struct CheckView
 
 struct CheckDetailView
 {
-	int id;
+	std::string id;
 	double number;	
 	std::string time;
 };
@@ -31,7 +31,7 @@ private:
 	MysqlService mysqlService;
 
 public:
-	std::vector<CheckView> GetCheck(const int& _wareHouseId, std::string_view _start, std::string_view _end)
+	std::vector<CheckView> GetCheck(std::string_view _wareHouseId, std::string_view _start, std::string_view _end)
 	{
 		std::vector<CheckView> result;
 
@@ -51,35 +51,35 @@ public:
 			const auto checkInData = this->mysqlService.Query
 									(
 										"select sum(number) as number from checkIn where itemInventoryId = ? and time between ? and ?",
-										*reinterpret_cast<const int*>(item.at("id")->data()),
+										item.at("id")->data(),
 										_start,
 										_end
 									);
-			if(checkInData.size() > 0)
+			if(checkInData.size() > 0 && checkInData.front().at("number").has_value())
 			{
-				checkInTotal += *reinterpret_cast<const double*>(checkInData.front().at("number")->data());
+				checkInTotal += std::stod(checkInData.front().at("number")->data());
 			}
 			const auto checkOutData = this->mysqlService.Query
 									(
 										"select sum(number) as number from checkOut where itemInventoryId = ? and time between ? and ?",
-										*reinterpret_cast<const int*>(item.at("id")->data()),
+										item.at("id")->data(),
 										_start,
 										_end
 									);
-			if(checkOutData.size() > 0)
+			if(checkOutData.size() > 0 && checkOutData.front().at("number").has_value())
 			{
-				checkOutTotal += *reinterpret_cast<const double*>(checkOutData.front().at("number")->data());
+				checkOutTotal += std::stod(checkOutData.front().at("number")->data());
 			}
 
 			if(checkInTotal != 0 || checkOutTotal != 0)
 			{
 				result.push_back
 				({
-					.id = *reinterpret_cast<const int*>(item.at("id")->data()),
+					.id = item.at("id")->data(),
 					.name = item.at("name")->data(),
 					.checkIn = checkInTotal,
 					.checkOut = checkOutTotal,
-					.cost = *reinterpret_cast<const double*>(item.at("cost")->data())
+					.cost = std::stod(item.at("cost")->data())
 				});
 			}
 		}
@@ -87,7 +87,7 @@ public:
 		return result;
 	}
 
-	std::vector<CheckDetailView> GetCheckDetail(const int& _itemInventoryId, std::string_view _start, std::string_view _end)
+	std::vector<CheckDetailView> GetCheckDetail(std::string_view _itemInventoryId, std::string_view _start, std::string_view _end)
 	{
 		std::vector<CheckDetailView> result;
 
@@ -109,8 +109,8 @@ public:
 
 			result.push_back
 			({
-				.id = *reinterpret_cast<const int*>(item.at("id")->data()),
-				.number = *reinterpret_cast<const double*>(item.at("number")->data()),
+				.id = item.at("id")->data(),
+				.number = std::stod(item.at("number")->data()),
 				.time = temp
 			});
 		}		
@@ -134,8 +134,8 @@ public:
 
 			result.push_back
 			({
-				.id = *reinterpret_cast<const int*>(item.at("id")->data()),
-				.number = -*reinterpret_cast<const double*>(item.at("number")->data()),
+				.id = item.at("id")->data(),
+				.number = -std::stod(item.at("number")->data()),
 				.time = temp
 			});
 		}		
@@ -144,13 +144,13 @@ public:
 	}
 
 
-	std::vector<std::string> GetCancelCheckInSql(const int& _checkInId)
+	std::vector<std::string> GetCancelCheckInSql(std::string_view _checkInId)
 	{
 		auto datatable = this->mysqlService.Query("select * from checkIn where id = ?", _checkInId);		
 		if(datatable.size() == 0)
 			throw std::logic_error("入库记录不存在!");
 
-		const auto itemInventory = this->itemInventoryService.GetById(*reinterpret_cast<const int*>(datatable.front().at("itemInventoryId")->data()));
+		const auto itemInventory = this->itemInventoryService.GetById(datatable.front().at("itemInventoryId")->data());
 
 		if(!itemInventory.has_value())
 			throw std::logic_error("库存不存在!");
@@ -159,7 +159,7 @@ public:
 		std::stringstream ss;
 		std::vector<std::string> sqlCmd;
 
-		ss << "update itemInventory set stock = stock - " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << " where id = " << itemInventory->id << " and stock >= " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << ";";
+		ss << "update itemInventory set stock = stock - " << std::stod(datatable.front().at("number")->data()) << " where id = '" << itemInventory->id << "' and stock >= " << std::stod(datatable.front().at("number")->data()) << ";";
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
@@ -169,7 +169,12 @@ public:
 		ss.clear();
 		ss.str("");
 
-		ss << "delete from checkIn where id = " << _checkInId << ";";
+		ss << "delete from checkIn where id = '" << _checkInId << "';";
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		ss << "if ROW_COUNT() <> 1 then SIGNAL SQLSTATE 'HY000' SET MESSAGE_TEXT = '删除失败'; end if;";
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
@@ -177,13 +182,13 @@ public:
 		return sqlCmd;
 	}
 
-	std::vector<std::string> GetCancelCheckOutSql(const int& _checkOutId)
+	std::vector<std::string> GetCancelCheckOutSql(std::string_view _checkOutId)
 	{
 		auto datatable = this->mysqlService.Query("select * from checkOut where id = ?", _checkOutId);		
 		if(datatable.size() == 0)
 			throw std::logic_error("出库记录不存在!");
 
-		const auto itemInventory = this->itemInventoryService.GetById(*reinterpret_cast<const int*>(datatable.front().at("itemInventoryId")->data()));
+		const auto itemInventory = this->itemInventoryService.GetById(datatable.front().at("itemInventoryId")->data());
 
 		if(!itemInventory.has_value())
 			throw std::logic_error("库存不存在!");
@@ -192,7 +197,7 @@ public:
 		std::stringstream ss;
 		std::vector<std::string> sqlCmd;
 
-		ss << "update itemInventory set stock = stock + " << *reinterpret_cast<const double*>(datatable.front().at("number")->data()) << " where id = " << itemInventory->id << ";";
+		ss << "update itemInventory set stock = stock + " << std::stod(datatable.front().at("number")->data()) << " where id = '" << itemInventory->id << "';";
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
@@ -202,7 +207,12 @@ public:
 		ss.clear();
 		ss.str("");
 
-		ss << "delete from checkOut where id = " << _checkOutId << ";";	
+		ss << "delete from checkOut where id = '" << _checkOutId << "';";
+		sqlCmd.emplace_back(ss.str());
+		ss.clear();
+		ss.str("");
+
+		ss << "if ROW_COUNT() <> 1 then SIGNAL SQLSTATE 'HY000' SET MESSAGE_TEXT = '删除失败'; end if;";
 		sqlCmd.emplace_back(ss.str());
 		ss.clear();
 		ss.str("");
