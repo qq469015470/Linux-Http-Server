@@ -127,7 +127,7 @@ namespace ExceptionHandler
 
 		char* demangled = abi:: __cxa_demangle(tinfo->name(), 0, 0, 0);
 
-		ss << "throw exception of type " << std::string(demangled ? demangled : tinfo->name()) << "\r\n";
+		ss << "throw exception of type " << std::string(demangled ? demangled : tinfo->name()) << "\n";
 
 		if (demangled) {
 			std::free(demangled);
@@ -137,7 +137,7 @@ namespace ExceptionHandler
 		{
 			std::exception* the_exception = reinterpret_cast<std::exception*>(abi::__dynamic_cast(thrown_exception, exc, cti, -1));
 			if (the_exception) 
-				ss << "what():" << the_exception->what() << "\r\n"; 
+				ss << "what():" << the_exception->what() << "\n"; 
 		}
 
 		ss << stacktrace();

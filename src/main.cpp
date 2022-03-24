@@ -11,6 +11,7 @@
 #include <thread>
 #include <chrono>
 #include <netdb.h>
+#include <filesystem>
 
 class DateTime
 {
@@ -147,7 +148,7 @@ public:
 		return temp;
 	}
 
-	inline std::string ToString()
+	inline std::string ToString() const
 	{
 		time_t temp;
 		std::tm time;
@@ -590,8 +591,27 @@ int main(int _argc, char* _argv[])
 	{
 		if(_response.GetStateCode() == 500)
 		{
-			std::cout << std::endl;
-			std::cout << "***post***" << std::endl;
+			const DateTime datetime = DateTime::Now();
+			const std::string logPath = "log/";
+
+			if(!std::filesystem::exists(std::filesystem::path(logPath)))
+			{
+				if(!std::filesystem::create_directory(logPath))
+				{
+					throw std::runtime_error("can not create log dir");
+				}
+			}
+
+			const std::string threadId = std::to_string(std::hash<std::thread::id>()(std::this_thread::get_id()));
+			const std::string logfileName = datetime.ToString() + std::string("_") + threadId + ".txt";
+
+			std::fstream file(logPath + logfileName, std::ios::out);
+			if(!file.is_open())
+			{
+				throw std::runtime_error("can not open file");
+			}
+
+			file << "***post***" << std::endl;
 
 			std::string temp;
 
@@ -602,24 +622,26 @@ int main(int _argc, char* _argv[])
 
 			temp += " ";
 			temp += _request.GetVersion();
-			temp += "\r\n";
+			temp += "\n";
 
 			for(const auto& item: _request.GetHeader().GetHttpAttrs())
 			{
-				temp += item.GetKey() + ": " + item.GetValue() + "\r\n";
+				temp += item.GetKey() + ": " + item.GetValue() + "\n";
 			}
 
-			temp += "\r\n";
+			temp += "\n";
 
 			temp += std::string(_request.GetBody(), _request.GetBodyLen());
 
-			std::cout << temp << std::endl;
-			std::cout << "**********" << std::endl;
+			file << temp << std::endl;; 
+			file << "**********" << std::endl;
 
-			std::cout << "***backtrace***" << std::endl;
-			std::cout << "thread id:" << std::this_thread::get_id() << std::endl;
-			std::cout << ExceptionHandler::GetLastStackTrace() << std::endl;
-			std::cout << "***************" << std::endl;
+			file << "***backtrace***" << std::endl;
+			file << "thread id:" << std::this_thread::get_id() << std::endl;
+			file << ExceptionHandler::GetLastStackTrace() << std::endl;
+			file << "***************" << std::endl;
+
+			file.close();
 		}
 	});
 
