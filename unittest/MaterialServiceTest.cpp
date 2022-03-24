@@ -38,6 +38,17 @@ TEST_F(MaterialServiceTest, GetMaterialByName)
 	EXPECT_STREQ("AMaterial", material->name.c_str());
 }
 
+TEST_F(MaterialServiceTest, ContainsMaterialByName)
+{
+	MaterialService materialService;
+
+	const std::vector<Material> materials = materialService.ContainsMaterialByName("A");
+
+	ASSERT_EQ(1, materials.size());
+	EXPECT_STREQ("ad290436-aa66-11ec-acff-000c29910818", materials.front().id.c_str());
+	EXPECT_STREQ("AMaterial", materials.front().name.c_str());
+}
+
 TEST_F(MaterialServiceTest, GetMaterialById)
 {
 	MaterialService materialService;

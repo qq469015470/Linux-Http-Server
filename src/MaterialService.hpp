@@ -42,6 +42,22 @@ public:
 		};
 	}
 
+	inline std::vector<Material> ContainsMaterialByName(std::string_view _materialName)
+	{
+		auto datatable = this->mysqlService.Query("select * from material where name like CONCAT('%',?,'%')", _materialName);
+
+		std::vector<Material> result;
+		for(const auto& item: datatable)
+		{
+			result.push_back
+			({
+				.id = item.at("id")->data(),
+				.name = item.at("name")->data(),
+			});
+		}
+
+		return result;
+	}
 
 	inline std::optional<Material> GetMaterialById(std::string_view _materialId)
 	{

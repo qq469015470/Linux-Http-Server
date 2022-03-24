@@ -159,6 +159,30 @@ public:
 		return result;
 	}
 
+	inline std::vector<Material> GetContainsMaterialName(std::string_view _wareHouseId, std::string_view _materialName)
+	{
+		auto dataTable = this->mysqlService.Query
+						(
+						 "select material.id, material.name from itemInventory "
+						 "left join material on itemInventory.materialId = material.id "
+						 "where wareHouseId = ? and material.name like CONCAT('%',?,'%')",
+						 _wareHouseId,
+						 _materialName
+						);
+
+		std::vector<Material> result;
+		for(const auto& item: dataTable)
+		{
+			result.push_back
+			({
+				.id = item.at("id")->data(),
+				.name = item.at("name")->data(),
+			});	
+		}
+
+		return result;
+	}
+
 	inline std::optional<ItemInventoryView> GetById(std::string_view _itemInventoryId)
 	{
 		auto dataTable = this->mysqlService.Query("select itemInventory.*, material.name from itemInventory left join material on itemInventory.materialId = material.id where itemInventory.id = ?", _itemInventoryId);

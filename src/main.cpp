@@ -287,7 +287,6 @@ public:
 		}
 	}
 
-
 	web::HttpResponse Edit(const web::UrlParam& _params, const web::HttpHeader& _header)
 	{
 		try
@@ -389,6 +388,33 @@ public:
 			mysqlService.ExecuteCommandWithTran(sqlCmds);
 
 			return JsonData(JsonDataCode::Success, nullptr, "");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
+	}
+
+	web::HttpResponse Contains(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		try
+		{
+			ItemInventoryService itemInventoryService;
+
+			const std::vector<Material> materials = itemInventoryService.GetContainsMaterialName(_params["_houseId"].ToString(), _params["_materialName"].ToString());
+
+			web::JsonObj data;
+			for(const auto& item: materials)
+			{
+				web::JsonObj temp;
+
+				temp["id"] = item.id;
+				temp["name"] = item.name;
+
+				data.Push(std::move(temp));
+			}
+
+			return JsonData(JsonDataCode::Success, &data, "");
 		}
 		catch(const std::logic_error& _ex)
 		{
@@ -549,6 +575,7 @@ int main(int _argc, char* _argv[])
 	router->RegisterUrl("GET", "/ItemInventory/Get", &ItemInventoryController::Get, &itemInventoryController);
 	router->RegisterUrl("POST", "/ItemInventory/CheckIn", &ItemInventoryController::CheckIn, &itemInventoryController);
 	router->RegisterUrl("POST", "/ItemInventory/CheckOut", &ItemInventoryController::CheckOut, &itemInventoryController);
+	router->RegisterUrl("GET", "/ItemInventory/Contains", &ItemInventoryController::Contains, &itemInventoryController);
 
 	router->RegisterUrl("GET", "/Check/Get", &CheckController::Get, &checkController);
 	router->RegisterUrl("GET", "/Check/GetDetail", &CheckController::GetDetail, &checkController);

@@ -18,7 +18,8 @@ protected:
 		mysqlService.ExecuteCommand("insert into wareHouse(id, name) values('f09146a6-ab38-11ec-acff-000c29910818', 'test')");
 
 		mysqlService.ExecuteCommand("insert into material(id, name) values('2474240c-ab39-11ec-acff-000c29910818', 'AMaterial')");
-		mysqlService.ExecuteCommand("insert into material(id, name) values('32be680d-ab39-11ec-acff-000c29910818', 'BMaterial')");
+		mysqlService.ExecuteCommand("insert into material(id, name) values('32be680d-ab39-11ec-acff-000c29910818', 'anotherMaterial')");
+
 		mysqlService.ExecuteCommand("insert into itemInventory(id, wareHouseId, materialId, cost, stock) values('44a71920-ab39-11ec-acff-000c29910818', 'f09146a6-ab38-11ec-acff-000c29910818', '2474240c-ab39-11ec-acff-000c29910818', 12.45, 0)");
 		mysqlService.ExecuteCommand("insert into itemInventory(id, wareHouseId, materialId, cost, stock) values('5476a844-ab39-11ec-acff-000c29910818', 'f09146a6-ab38-11ec-acff-000c29910818', '32be680d-ab39-11ec-acff-000c29910818', 30, 1)");
 		mysqlService.ExecuteCommand("insert into checkIn(id, itemInventoryId, number, time) values('6b16878e-ab39-11ec-acff-000c29910818', '5476a844-ab39-11ec-acff-000c29910818', 1, '2000-01-01 12:07:49')");
@@ -45,6 +46,17 @@ TEST_F(ItemInventoryServiceTest, GetItemInventory)
 	EXPECT_EQ(0, view->stock);
 }
 
+TEST_F(ItemInventoryServiceTest, ContainsMaterialName)
+{
+	ItemInventoryService itemInventoryService;
+
+	const std::vector<Material> materials = itemInventoryService.GetContainsMaterialName("f09146a6-ab38-11ec-acff-000c29910818", "anotherMaterial");
+
+	ASSERT_EQ(1, materials.size());
+	EXPECT_STREQ("32be680d-ab39-11ec-acff-000c29910818", materials.front().id.c_str());
+	EXPECT_STREQ("anotherMaterial", materials.front().name.c_str());
+}
+
 TEST_F(ItemInventoryServiceTest, GetItemInvenotoryList)
 {
 	ItemInventoryService itemInventoryService;
@@ -63,7 +75,7 @@ TEST_F(ItemInventoryServiceTest, GetItemInvenotoryList)
 	EXPECT_STREQ("5476a844-ab39-11ec-acff-000c29910818", views.at(1).id.c_str());
 	EXPECT_STREQ("f09146a6-ab38-11ec-acff-000c29910818", views.at(1).wareHouseId.c_str());
 	EXPECT_STREQ("32be680d-ab39-11ec-acff-000c29910818", views.at(1).materialId.c_str());
-	EXPECT_STREQ("BMaterial", views.at(1).name.c_str());
+	EXPECT_STREQ("anotherMaterial", views.at(1).name.c_str());
 	EXPECT_EQ(30, views.at(1).price);
 	EXPECT_EQ(1, views.at(1).stock);
 }
