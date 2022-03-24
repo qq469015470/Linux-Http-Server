@@ -1,9 +1,9 @@
 SET @@autocommit=0;
 START TRANSACTION;
 
-CREATE DATABASE IF NOT EXISTS dangkou_test;
+CREATE DATABASE IF NOT EXISTS dangkou_prod;
 
-USE dangkou_test;
+USE dangkou_prod;
 
 CREATE TABLE IF NOT EXISTS `wareHouse` 
 (

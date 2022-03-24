@@ -219,7 +219,7 @@ public:
 			{
 				web::JsonObj temp;
 
-				temp["id"] = std::to_string(item.id);
+				temp["id"] = item.id;
 				temp["name"] = item.name;
 
 				result.Push(std::move(temp));
@@ -258,18 +258,19 @@ public:
 		try
 		{
 			ItemInventoryService itemInventoryService;
+			MysqlService mysqlService;
 	       		
 			std::vector<std::string> sqlCmds;
 	       
+			const std::string itemInventoryId = mysqlService.GetUUID();
+
 			sqlCmds	= itemInventoryService.GetAddItemInventorySql
 								(
+									itemInventoryId,
 									_params["_materialName"].ToString(), 
-									std::stoi(_params["_itemInventory"]["wareHouseId"].ToString()), 
+									_params["_itemInventory"]["wareHouseId"].ToString(), 
 									std::stod(_params["_itemInventory"]["cost"].ToString())
 								);
-			MysqlService mysqlService;
-
-			const int& itemInventoryId = mysqlService.GetNextInsertId("itemInventory");
 
 			for(const auto& item: itemInventoryService.GetCheckInSql(itemInventoryId, std::stod(_params["_itemInventory"]["stock"].ToString()), false))
 			{
@@ -297,7 +298,7 @@ public:
 
 			sqlCmds = itemInventoryService.GetEditItemInventorySql
 					(
-					 	std::stoi(_params["_itemInventoryId"].ToString()),
+					 	_params["_itemInventoryId"].ToString(),
 						_params["_name"].ToString(),
 						std::stod(_params["_price"].ToString())
 					);
@@ -321,7 +322,7 @@ public:
 		{
 			ItemInventoryService itemInventoryService;
 
-			std::vector<ItemInventoryView> view = itemInventoryService.GetByWareHouseId(std::stoi(_params["_houseId"].ToString()));
+			std::vector<ItemInventoryView> view = itemInventoryService.GetByWareHouseId(_params["_houseId"].ToString());
 
 			web::JsonObj data;
 			for(const auto& item: view)
@@ -353,7 +354,7 @@ public:
 	{
 		try
 		{
-			const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
+			const std::string itemInventoryId = _params["_itemInventoryId"].ToString();
 			const double number = std::stod(_params["_number"].ToString());
 
 			ItemInventoryService itemInventoryService; 
@@ -376,7 +377,7 @@ public:
 	{
 		try
 		{
-			const int itemInventoryId = std::stoi(_params["_itemInventoryId"].ToString());
+			const std::string itemInventoryId = _params["_itemInventoryId"].ToString();
 			const double number = std::stod(_params["_number"].ToString());
 
 			ItemInventoryService itemInventoryService; 
@@ -410,7 +411,7 @@ public:
 
 			const std::vector<CheckView> view = checkService.GetCheck
 								(
-									std::stoi(_params["_houseId"].ToString()),
+									_params["_houseId"].ToString(),
 									start.ToString(),
 									end.ToString()
 								);
@@ -450,7 +451,7 @@ public:
 	
 			const std::vector<CheckDetailView> view = checkService.GetCheckDetail
 									(
-										std::stoi(_params["_itemInventoryId"].ToString()),
+										_params["_itemInventoryId"].ToString(),
 										start.ToString(),
 										end.ToString()
 									);
@@ -483,7 +484,7 @@ public:
 		{
 			CheckService checkService;
 
-			const std::vector<std::string> sql = checkService.GetCancelCheckInSql(std::stoi(_params["_id"].ToString()));	
+			const std::vector<std::string> sql = checkService.GetCancelCheckInSql(_params["_id"].ToString());	
 
 			MysqlService mysqlService;
 
@@ -503,7 +504,7 @@ public:
 		{
 			CheckService checkService;
 
-			const std::vector<std::string> sql = checkService.GetCancelCheckOutSql(std::stoi(_params["_id"].ToString()));	
+			const std::vector<std::string> sql = checkService.GetCancelCheckOutSql(_params["_id"].ToString());
 
 			MysqlService mysqlService;
 
@@ -529,6 +530,7 @@ int main(int _argc, char* _argv[])
 	const char* ip = _argv[1];
 	const char* port = _argv[2];
 
+	MysqlService::SetDataBase("dangkou_prod");
 
 	std::unique_ptr<web::Router> router(new web::Router);
 

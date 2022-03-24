@@ -74,7 +74,7 @@ public:
 		return result;		
 	}
 
-	inline std::vector<std::string> GetAddItemInventorySql(std::string_view _materialName, std::string_view _wareHouseId, const double& _cost)
+	inline std::vector<std::string> GetAddItemInventorySql(std::string_view _id, std::string_view _materialName, std::string_view _wareHouseId, const double& _cost)
 	{
 		auto dataTable = this->mysqlService.Query("select * from wareHouse where id = ?", _wareHouseId);
 
@@ -105,7 +105,7 @@ public:
 		if(dataTable.size() != 0)
 			throw std::logic_error("不能重复添加!");
 
-		sqlCmd << "insert into itemInventory (id, wareHouseId, materialId, cost, stock) values(uuid(),'" << this->mysqlService.GetSafeSqlString(_wareHouseId) << "','" << this->mysqlService.GetSafeSqlString(materialId) << "'," << _cost << ", 0);";
+		sqlCmd << "insert into itemInventory (id, wareHouseId, materialId, cost, stock) values('" << this->mysqlService.GetSafeSqlString(_id) << "','" << this->mysqlService.GetSafeSqlString(_wareHouseId) << "','" << this->mysqlService.GetSafeSqlString(materialId) << "'," << _cost << ", 0);";
 		result.emplace_back(sqlCmd.str());
 
 		return result;

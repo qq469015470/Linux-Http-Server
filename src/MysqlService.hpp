@@ -297,7 +297,15 @@ public:
 		baseSql += "END\r\n";
 
 		this->ExecuteCommand(baseSql);
-		this->ExecuteCommand(std::string("CALL ") + procedureName + "()");
+		try
+		{
+			this->ExecuteCommand(std::string("CALL ") + procedureName + "()");
+		}
+		catch(std::exception& _ex)
+		{
+			this->ExecuteCommand(std::string("DROP PROCEDURE ") + procedureName);
+			throw;
+		}
 		this->ExecuteCommand(std::string("DROP PROCEDURE ") + procedureName);
 	}
 

@@ -71,14 +71,13 @@ TEST_F(ItemInventoryServiceTest, GetItemInvenotoryList)
 TEST_F(ItemInventoryServiceTest, AddItemInventory)
 {
 	ItemInventoryService itemInventoryService;
+	MysqlService mysqlService;
 
-	std::vector<std::string> sql(itemInventoryService.GetAddItemInventorySql("testMaterial", "f09146a6-ab38-11ec-acff-000c29910818", 12.34));
+	std::vector<std::string> sql(itemInventoryService.GetAddItemInventorySql(mysqlService.GetUUID(), "testMaterial", "f09146a6-ab38-11ec-acff-000c29910818", 12.34));
 
 	for(const auto& item: sql)
 		std::cout << item << std::endl;
 	
-	MysqlService mysqlService;
-
 	mysqlService.ExecuteCommandWithTran(sql);
 
 	auto datatable = mysqlService.Query("select * from itemInventory");
@@ -96,7 +95,7 @@ TEST_F(ItemInventoryServiceTest, AddItemInventory_InExistMaterial)
 	mysqlService.ExecuteCommand("insert into material(id, name) values(999, 'existMaterial')");
 	ItemInventoryService itemInventoryService;
 
-	std::vector<std::string> sql(itemInventoryService.GetAddItemInventorySql("existMaterial", "f09146a6-ab38-11ec-acff-000c29910818", 12.34));
+	std::vector<std::string> sql(itemInventoryService.GetAddItemInventorySql(mysqlService.GetUUID() , "existMaterial", "f09146a6-ab38-11ec-acff-000c29910818", 12.34));
 
 	for(const auto& item: sql)
 		std::cout << item << std::endl;
