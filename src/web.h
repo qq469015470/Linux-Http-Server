@@ -996,6 +996,37 @@ namespace web
 			}
 		}
 
+		static inline int GzipCompress(unsigned char* data, size_t ndata, unsigned char* zdata, size_t *nzdata)
+		{
+			z_stream c_stream;
+			int err = 0;
+
+			if (data && ndata > 0) {
+				c_stream.zalloc = NULL;
+				c_stream.zfree = NULL;
+				c_stream.opaque = NULL;
+				if (deflateInit2(&c_stream, Z_BEST_COMPRESSION, Z_DEFLATED,
+					MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return -1;
+				c_stream.next_in = data;
+				c_stream.avail_in = ndata;
+				c_stream.next_out = zdata;
+				c_stream.avail_out = *nzdata;
+				while (c_stream.avail_in != 0 && c_stream.total_out < *nzdata) {
+					if (deflate(&c_stream, Z_NO_FLUSH) != Z_OK) return -1;
+				}
+				if (c_stream.avail_in != 0) return c_stream.avail_in;
+				for (;;) {
+					if ((err = deflate(&c_stream, Z_FINISH)) == Z_STREAM_END) break;
+					if (err != Z_OK) return -1;
+				}
+				if (deflateEnd(&c_stream) != Z_OK) return -1;
+				*nzdata = c_stream.total_out;
+				return 0;
+			}
+
+			return -1;
+		}
+
 	public:
 		HttpResponse(int _stateCode, const std::vector<HttpAttr>& _httpAttrs, const char* _body, size_t _bodyLen):
 			stateCode(_stateCode),
@@ -1005,8 +1036,32 @@ namespace web
 			
 			header = "HTTP/1.1 " + std::to_string(_stateCode) + " " + HttpResponse::GetSpec(_stateCode) + "\r\n";
 
+			auto encIter = std::find_if(_httpAttrs.begin(), _httpAttrs.end(), [](const HttpAttr& _attr)
+			{
+				return _attr.GetKey() == "Content-Encoding" && _attr.GetValue() == "gzip";
+			});
+
+			if(encIter != _httpAttrs.end())
+			{
+				std::vector<char> compressByte;
+				size_t destLen(_bodyLen * 2);
+				compressByte.resize(_bodyLen * 2);
+
+				GzipCompress(reinterpret_cast<unsigned char*>(const_cast<char*>(_body)), _bodyLen, reinterpret_cast<unsigned char*>(compressByte.data()), &destLen);
+				if(destLen < 0)
+					throw std::runtime_error("zip faild");
+
+				this->body = std::move(compressByte);
+				this->body.resize(destLen);
+			}	
+			else
+			{
+				this->body.resize(_bodyLen);
+				std::copy(_body, _body + _bodyLen, this->body.data());
+			}
+
 			//if(_bodyLen > 0)
-				header += "Content-Length: " + std::to_string(_bodyLen) + "\r\n";
+				header += "Content-Length: " + std::to_string(this->body.size()) + "\r\n";
 
 			for(const auto& item: _httpAttrs)
 			{
@@ -1014,13 +1069,11 @@ namespace web
 			}
 
 			header += "\r\n";
-
-			this->content.resize(header.size() + _bodyLen);
-			this->body.resize(_bodyLen);
+			
+			this->content.resize(header.size() + this->body.size());
 
 			std::copy(header.data(), header.data() + header.size(), this->content.data());
-			std::copy(_body, _body + _bodyLen, this->content.data() + header.size());
-			std::copy(_body, _body + _bodyLen, this->body.data());
+			std::copy(this->body.data(), this->body.data() + this->body.size(), this->content.data() + header.size());
 		}
 
 		int GetStateCode() const
@@ -1854,37 +1907,6 @@ namespace web
 			return bytes;
 		}
 
-		static inline int GzipCompress(unsigned char* data, size_t ndata, unsigned char* zdata, size_t *nzdata)
-		{
-			z_stream c_stream;
-			int err = 0;
-
-			if (data && ndata > 0) {
-				c_stream.zalloc = NULL;
-				c_stream.zfree = NULL;
-				c_stream.opaque = NULL;
-				if (deflateInit2(&c_stream, Z_BEST_COMPRESSION, Z_DEFLATED,
-					MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) return -1;
-				c_stream.next_in = data;
-				c_stream.avail_in = ndata;
-				c_stream.next_out = zdata;
-				c_stream.avail_out = *nzdata;
-				while (c_stream.avail_in != 0 && c_stream.total_out < *nzdata) {
-					if (deflate(&c_stream, Z_NO_FLUSH) != Z_OK) return -1;
-				}
-				if (c_stream.avail_in != 0) return c_stream.avail_in;
-				for (;;) {
-					if ((err = deflate(&c_stream, Z_FINISH)) == Z_STREAM_END) break;
-					if (err != Z_OK) return -1;
-				}
-				if (deflateEnd(&c_stream) != Z_OK) return -1;
-				*nzdata = c_stream.total_out;
-				return 0;
-			}
-
-			return -1;
-		}
-
 		static inline HttpResponse GetRootFileResponse(const HttpRequest& _request)
 		{
 			const std::string root = "wwwroot/";
@@ -1904,20 +1926,9 @@ namespace web
 				};
 
 				const std::unordered_set<std::string> acceptEncoding = _request.GetHeader().GetAcceptEncoding();
-				if(body.size() > 1024 && acceptEncoding.find("gzip") != acceptEncoding.end())
+				if(acceptEncoding.find("gzip") != acceptEncoding.end())
 				{
 					attrs.push_back({"Content-Encoding", "gzip"});
-
-					std::vector<char> compressByte;
-					size_t destLen(body.size() * 2);
-					compressByte.resize(body.size() * 2);
-
-					GzipCompress(reinterpret_cast<unsigned char*>(body.data()), body.size(), reinterpret_cast<unsigned char*>(compressByte.data()), &destLen);
-					if(destLen < 0)
-						throw std::runtime_error("zip faild");
-
-					body = std::move(compressByte);
-					bodyLen = destLen;
 				}
 		
 				return HttpResponse(200, std::move(attrs), body.data(), bodyLen);
@@ -2784,14 +2795,14 @@ namespace web
 
 		file.close();
 
-		return HttpResponse(stateCode, {{"Content-Type", "text/html; charset=utf-8"}}, body.data(), body.size());
+		return HttpResponse(stateCode, {{"Content-Type", "text/html; charset=utf-8"}, {"Content-Encoding", "gzip"}}, body.data(), body.size());
 	}
 
 	HttpResponse Json(const JsonObj& _json)
 	{
 		std::vector<HttpAttr> attrs = 
 		{
-			{"Access-Control-Allow-Origin", "*"},
+			//{"Access-Control-Allow-Origin", "*"},
 			{"Content-Type", "application/json; charset=utf8"}
 		};
 
@@ -2804,7 +2815,7 @@ namespace web
 	{
 		std::vector<HttpAttr> attrs = 
 		{
-			{"Access-Control-Allow-Origin", "*"},
+			//{"Access-Control-Allow-Origin", "*"},
 			{"Content-Type", "application/json; charset=utf8"}
 		};
 
