@@ -587,7 +587,7 @@ int main(int _argc, char* _argv[])
 
 	web::HttpServer server(std::move(router));
 
-	server.UseSSL(true);
+	server.UseSSL(false);
 
 	server.SetHttpResponseCallBack([](const web::HttpRequest& _request, const web::HttpResponse& _response)
 	{
