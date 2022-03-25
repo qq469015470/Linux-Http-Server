@@ -1102,6 +1102,62 @@ namespace web
 		}
 	};
 
+	HttpResponse View(std::string_view _path)
+	{
+		const std::string root ="view/";
+		const std::string path = root + _path.data();
+
+		std::ifstream file(path);
+
+		int stateCode(200);
+		std::vector<char> body;
+
+		if(file.is_open())
+		{
+			file.seekg(0, std::ios::end);
+			body.resize(file.tellg());
+			file.seekg(0, std::ios::beg);
+			
+			file.read(body.data(), body.size());
+		}
+		else
+		{
+			const char* temp = "Ops! file not found!";
+
+			body.resize(strlen(temp));
+
+			std::copy(temp, temp + body.size(), body.data());
+		}
+
+		file.close();
+
+		return HttpResponse(stateCode, {{"Content-Type", "text/html; charset=utf-8"}, {"Content-Encoding", "gzip"}}, body.data(), body.size());
+	}
+
+	HttpResponse Json(const JsonObj& _json)
+	{
+		std::vector<HttpAttr> attrs = 
+		{
+			//{"Access-Control-Allow-Origin", "*"},
+			{"Content-Type", "application/json; charset=utf8"}
+		};
+
+		std::string res(_json.ToJson());
+
+		return HttpResponse(200, std::move(attrs), res.data(), res.size());
+	}
+
+	HttpResponse Json(std::string_view _str)
+	{
+		std::vector<HttpAttr> attrs = 
+		{
+			//{"Access-Control-Allow-Origin", "*"},
+			{"Content-Type", "application/json; charset=utf8"}
+		};
+
+		return HttpResponse(200, std::move(attrs), _str.data(), _str.size());
+	}
+
 	class ISocket
 	{
 	public:
@@ -1362,39 +1418,10 @@ namespace web
 	class Router
 	{
 	private:
-		using UrlCallback = HttpResponse(const UrlParam&, const HttpHeader&);
+		using UrlCallback = std::function<HttpResponse(const UrlParam&, const HttpHeader&)>;
 		using WebsocketConnectCallback = void(Websocket* _id, const HttpHeader& header);
 		using WebsocketOnMessageCallback = void(Websocket* _id, const char* _data, size_t _size);
 		using WebsocketDisconnectCallback = void(Websocket* _id);
-
-		class IUrlCallbackObj
-		{
-		public:
-			virtual ~IUrlCallbackObj() = default;
-
-			virtual HttpResponse Callback(const UrlParam& _params, const HttpHeader&) = 0;
-		};
-
-		template<typename _TYPE, typename _METHOD>
-		class UrlCallbackObj: virtual public IUrlCallbackObj
-		{
-		private:
-			_TYPE* ptr;
-			_METHOD func;
-		                                                                        
-		public:
-			UrlCallbackObj(_TYPE* _ptr, _METHOD _func):
-				ptr(_ptr),
-				func(_func)
-			{
-		                                                                        
-			}
-			
-			virtual HttpResponse Callback(const UrlParam& _params, const HttpHeader& _header) override
-			{
-				return ((this->ptr)->*(this->func))(_params, _header);
-			}
-		};
 
 		class IWebsocketeCallbackObj
 		{
@@ -1451,7 +1478,7 @@ namespace web
 		{
 			std::string type;
 			std::string url;
-			UrlCallback* callback;
+			UrlCallback callback;
 		};
 
 		struct WebsocketInfo
@@ -1466,8 +1493,9 @@ namespace web
 		std::unordered_map<std::string, std::unordered_map<std::string, UrlInfo>> urlInfos;
 		std::unordered_map<std::string, WebsocketInfo> websocketInfos;
 
-		std::unordered_map<std::string, std::unordered_map<std::string, std::unique_ptr<IUrlCallbackObj>>> urlObjInfos;
 		std::unordered_map<std::string, std::unique_ptr<IWebsocketeCallbackObj>> websocketObjInfos;
+
+		UrlCallback page404Res;
 
 		const UrlInfo* GetUrlInfo(std::string_view _type, std::string_view _url) const
 		{
@@ -1480,19 +1508,6 @@ namespace web
 				return nullptr;
 
 			return &typeIter->second;
-		}
-
-		IUrlCallbackObj* GetUrlCallbackObj(std::string_view _type, std::string_view _url) const
-		{
-			auto urlIter = this->urlObjInfos.find(_url.data());
-			if(urlIter == this->urlObjInfos.end())
-				return nullptr;
-
-			auto typeIter = urlIter->second.find(_type.data());
-			if(typeIter == urlIter->second.end())
-				return nullptr;
-
-			return typeIter->second.get();
 		}
 
 		const WebsocketInfo* GetWebsocketInfo(std::string_view _url) const
@@ -1514,7 +1529,19 @@ namespace web
 		}
 
 	public:
-		void RegisterUrl(std::string_view _type, std::string_view _url, UrlCallback* _func)
+		Router():
+			page404Res
+			([](const web::UrlParam& _params, const web::HttpHeader& _header)
+			{
+				const std::string notFoundStr = "could not find wwwroot file";
+
+				return HttpResponse(404, {}, notFoundStr.data(), notFoundStr.size());
+			})
+		{
+
+		}
+
+		void RegisterUrl(std::string_view _type, std::string_view _url, UrlCallback _func)
 		{
 			if(this->urlInfos.find(_url.data()) != this->urlInfos.end())
 			{
@@ -1530,14 +1557,14 @@ namespace web
 			this->urlInfos[_url.data()].insert(std::pair<std::string, UrlInfo>(_type, std::move(temp)));
 		}
 
-		template<typename _TYPE>
-		void RegisterUrl(std::string_view _type, std::string_view _url, HttpResponse(_TYPE::*_func)(const UrlParam&, const HttpHeader&), _TYPE* _ptr)
+		void SetPage404Response(UrlCallback _func)
 		{
-			//成员指针调用成员函数指针语法
-			//(_ptr->*_func)(UrlParam());
-			
-			std::unique_ptr<IUrlCallbackObj> temp(std::make_unique<UrlCallbackObj<_TYPE, decltype(_func)>>(_ptr, _func));
-			this->urlObjInfos[_url.data()].insert(std::pair<std::string, std::unique_ptr<IUrlCallbackObj>>(_type.data(), std::move(temp)));
+			this->page404Res = _func;
+		}
+
+		UrlCallback GetPage404Response()
+		{
+			return this->page404Res;
 		}
 
 		void RegisterWebsocket(std::string_view _url, WebsocketConnectCallback* _connect, WebsocketOnMessageCallback* _onMessage, WebsocketDisconnectCallback* _disconnect)
@@ -1578,9 +1605,6 @@ namespace web
 			if(this->GetUrlInfo(_type, _url) != nullptr)
 				return true;
 
-			if(this->GetUrlCallbackObj(_type, _url) != nullptr)
-				return true;	
-
 			return false;
 		}
 
@@ -1590,12 +1614,6 @@ namespace web
 			if(urlInfo != nullptr)
 			{
 				return (urlInfo->callback)(_params, _header);
-			}
-
-			auto urlCallbackObj = this->GetUrlCallbackObj(_type.data(), _url.data());
-			if(urlCallbackObj != nullptr)
-			{
-				return urlCallbackObj->Callback(_params, _header);
 			}
 
 			throw std::runtime_error("callback not found");
@@ -1907,7 +1925,7 @@ namespace web
 			return bytes;
 		}
 
-		static inline HttpResponse GetRootFileResponse(const HttpRequest& _request)
+		inline HttpResponse GetRootFileResponse(const HttpRequest& _request)
 		{
 			const std::string root = "wwwroot/";
 
@@ -1935,9 +1953,13 @@ namespace web
 			}
 			else
 			{
-				const std::string notFoundStr = "could not find wwwroot file";
+				UrlParam params;
+				if(_request.GetType() == "POST")
+					params = std::move(JsonObj::ParseFormData(std::string(_request.GetBody(), _request.GetBodyLen())));
+				else if(_request.GetType() == "GET")
+					params = std::move(JsonObj::ParseFormData(_request.GetQueryString()));
 
-				return HttpResponse(404, {}, notFoundStr.data(), notFoundStr.size());
+				return this->router->GetPage404Response()(params, _request.GetHeader());
 			}	
 
 		}
@@ -2765,60 +2787,4 @@ namespace web
 			return response;
 		}
 	};
-
-	HttpResponse View(std::string_view _path)
-	{
-		const std::string root ="view/";
-		const std::string path = root + _path.data();
-
-		std::ifstream file(path);
-
-		int stateCode(200);
-		std::vector<char> body;
-
-		if(file.is_open())
-		{
-			file.seekg(0, std::ios::end);
-			body.resize(file.tellg());
-			file.seekg(0, std::ios::beg);
-			
-			file.read(body.data(), body.size());
-		}
-		else
-		{
-			const char* temp = "Ops! file not found!";
-
-			body.resize(strlen(temp));
-
-			std::copy(temp, temp + body.size(), body.data());
-		}
-
-		file.close();
-
-		return HttpResponse(stateCode, {{"Content-Type", "text/html; charset=utf-8"}, {"Content-Encoding", "gzip"}}, body.data(), body.size());
-	}
-
-	HttpResponse Json(const JsonObj& _json)
-	{
-		std::vector<HttpAttr> attrs = 
-		{
-			//{"Access-Control-Allow-Origin", "*"},
-			{"Content-Type", "application/json; charset=utf8"}
-		};
-
-		std::string res(_json.ToJson());
-
-		return HttpResponse(200, std::move(attrs), res.data(), res.size());
-	}
-
-	HttpResponse Json(std::string_view _str)
-	{
-		std::vector<HttpAttr> attrs = 
-		{
-			//{"Access-Control-Allow-Origin", "*"},
-			{"Content-Type", "application/json; charset=utf8"}
-		};
-
-		return HttpResponse(200, std::move(attrs), _str.data(), _str.size());
-	}
 };

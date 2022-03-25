@@ -566,22 +566,24 @@ int main(int _argc, char* _argv[])
 	static ItemInventoryController itemInventoryController;
 	static CheckController checkController;
 
-	router->RegisterUrl("GET", "/", &HomeController::Index, &homeController);
+	router->SetPage404Response([](const web::UrlParam& _params, const web::HttpHeader& _header){ return web::View("home/vue.html");});
 
-	router->RegisterUrl("GET", "/WareHouse/Get", &WareHouseController::Get, &wareHouseController);
-	router->RegisterUrl("POST", "/WareHouse/Add", &WareHouseController::Add, &wareHouseController);
+	router->RegisterUrl("GET", "/", std::bind(&HomeController::Index, &homeController, std::placeholders::_1, std::placeholders::_2));
+
+	router->RegisterUrl("GET", "/WareHouse/Get", std::bind(&WareHouseController::Get, &wareHouseController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("POST", "/WareHouse/Add", std::bind(&WareHouseController::Add, &wareHouseController, std::placeholders::_1, std::placeholders::_2));
 	
-	router->RegisterUrl("POST", "/ItemInventory/Add", &ItemInventoryController::Add, &itemInventoryController);
-	router->RegisterUrl("POST", "/ItemInventory/Edit", &ItemInventoryController::Edit, &itemInventoryController);
-	router->RegisterUrl("GET", "/ItemInventory/Get", &ItemInventoryController::Get, &itemInventoryController);
-	router->RegisterUrl("POST", "/ItemInventory/CheckIn", &ItemInventoryController::CheckIn, &itemInventoryController);
-	router->RegisterUrl("POST", "/ItemInventory/CheckOut", &ItemInventoryController::CheckOut, &itemInventoryController);
-	router->RegisterUrl("GET", "/ItemInventory/Contains", &ItemInventoryController::Contains, &itemInventoryController);
+	router->RegisterUrl("POST", "/ItemInventory/Add", std::bind(&ItemInventoryController::Add, &itemInventoryController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("POST", "/ItemInventory/Edit", std::bind(&ItemInventoryController::Edit, &itemInventoryController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("GET", "/ItemInventory/Get", std::bind(&ItemInventoryController::Get, &itemInventoryController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("POST", "/ItemInventory/CheckIn", std::bind(&ItemInventoryController::CheckIn, &itemInventoryController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("POST", "/ItemInventory/CheckOut", std::bind(&ItemInventoryController::CheckOut, &itemInventoryController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("GET", "/ItemInventory/Contains", std::bind(&ItemInventoryController::Contains, &itemInventoryController, std::placeholders::_1, std::placeholders::_2));
 
-	router->RegisterUrl("GET", "/Check/Get", &CheckController::Get, &checkController);
-	router->RegisterUrl("GET", "/Check/GetDetail", &CheckController::GetDetail, &checkController);
-	router->RegisterUrl("POST", "/Check/CancelCheckIn", &CheckController::CancelCheckIn, &checkController);
-	router->RegisterUrl("POST", "/Check/CancelCheckOut", &CheckController::CancelCheckOut, &checkController);
+	router->RegisterUrl("GET", "/Check/Get", std::bind(&CheckController::Get, &checkController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("GET", "/Check/GetDetail", std::bind(&CheckController::GetDetail, &checkController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("POST", "/Check/CancelCheckIn", std::bind(&CheckController::CancelCheckIn, &checkController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("POST", "/Check/CancelCheckOut", std::bind(&CheckController::CancelCheckOut, &checkController, std::placeholders::_1, std::placeholders::_2));
 
 	web::HttpServer server(std::move(router));
 
