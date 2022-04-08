@@ -128,9 +128,12 @@ public:
 		result.emplace_back(sqlCmd.str());
 		sqlCmd.str("");
 
-		for(const auto& item: this->materialService.GetEditMaterialSql(material->id, _name))
+		if(_name != material->name)
 		{
-			result.emplace_back(item);
+			for(const auto& item: this->materialService.GetEditMaterialSql(material->id, _name))
+			{
+				result.emplace_back(item);
+			}
 		}
 
 		return result;

@@ -171,6 +171,26 @@ TEST_F(ItemInventoryServiceTest, Edit)
 	EXPECT_STREQ("32be680d-ab39-11ec-acff-000c29910818", view->materialId.c_str());
 }
 
+TEST_F(ItemInventoryServiceTest, EditOnlyPrice)
+{
+	ItemInventoryService itemInventoryService;
+	MysqlService mysqlService;
+
+	const std::vector<std::string> sql = itemInventoryService.GetEditItemInventorySql("5476a844-ab39-11ec-acff-000c29910818", "anotherMaterial", 666.6);
+
+	mysqlService.ExecuteCommandWithTran(sql);
+
+	const std::optional<ItemInventoryView> view = itemInventoryService.GetById("5476a844-ab39-11ec-acff-000c29910818");
+
+	ASSERT_TRUE(view.has_value());
+	EXPECT_STREQ("5476a844-ab39-11ec-acff-000c29910818", view->id.c_str());
+	EXPECT_STREQ("anotherMaterial", view->name.c_str());
+	EXPECT_STREQ("f09146a6-ab38-11ec-acff-000c29910818", view->wareHouseId.c_str());
+	EXPECT_EQ(666.6, view->price);
+	EXPECT_EQ(1, view->stock);
+	EXPECT_STREQ("32be680d-ab39-11ec-acff-000c29910818", view->materialId.c_str());
+}
+
 TEST_F(ItemInventoryServiceTest, EditMaterialNameRepeat)
 {
 	ItemInventoryService itemInventoryService;
