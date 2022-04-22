@@ -104,21 +104,14 @@ TEST_F(ItemInventoryServiceTest, AddItemInventory_InExistMaterial)
 {
 	MysqlService mysqlService;
 
-	mysqlService.ExecuteCommand("insert into material(id, name) values(999, 'existMaterial')");
+	mysqlService.ExecuteCommand("insert into material(id, name) values('b06b91d8-c23e-11ec-bafd-000c29910818', 'existMaterial')");
 	ItemInventoryService itemInventoryService;
 
-	std::vector<std::string> sql(itemInventoryService.GetAddItemInventorySql(mysqlService.GetUUID() , "existMaterial", "f09146a6-ab38-11ec-acff-000c29910818", 12.34));
 
-	for(const auto& item: sql)
-		std::cout << item << std::endl;
-	
-
-	mysqlService.ExecuteCommandWithTran(sql);
-
-	auto datatable = mysqlService.Query("select * from itemInventory");
-	EXPECT_EQ(3, datatable.size());
-	datatable = mysqlService.Query("select * from material;");
-	EXPECT_EQ(3, datatable.size());
+	EXPECT_THROW
+	({
+		itemInventoryService.GetAddItemInventorySql(mysqlService.GetUUID() , "existMaterial", "f09146a6-ab38-11ec-acff-000c29910818", 12.34);
+	}, std::logic_error);
 }
 
 TEST_F(ItemInventoryServiceTest, CheckIn)

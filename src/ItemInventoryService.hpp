@@ -98,7 +98,7 @@ public:
 		}	
 		else
 		{
-			materialId = material->id;
+			throw std::logic_error("已存在相同的货物名称!");
 		}
 
 		dataTable = this->mysqlService.Query("select * from itemInventory where materialId = ? and warehouseId = ? and cost = ?", materialId, _wareHouseId, _cost);
