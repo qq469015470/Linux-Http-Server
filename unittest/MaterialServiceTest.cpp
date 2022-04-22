@@ -19,6 +19,7 @@ protected:
 		mysqlService.ExecuteCommand("delete from wareHouse");
 
 		mysqlService.ExecuteCommand("insert into material(id, name) values('ad290436-aa66-11ec-acff-000c29910818', 'AMaterial')");
+		mysqlService.ExecuteCommand("insert into material(id, name) values('289e7829-c244-11ec-9f69-00163e15a7e7', 'book')");
 	}
 
 	virtual void TearDown()
@@ -118,6 +119,17 @@ TEST_F(MaterialServiceTest, EditMaterial)
 	ASSERT_TRUE(view.has_value());
 	EXPECT_STREQ("editMaterial", view->name.c_str());
 	EXPECT_STREQ("ad290436-aa66-11ec-acff-000c29910818", view->id.c_str());
+}
+
+TEST_F(MaterialServiceTest, EditMaterialRepeatName)
+{
+	MaterialService materialService;
+
+
+	EXPECT_THROW
+	({
+		materialService.GetEditMaterialSql("ad290436-aa66-11ec-acff-000c29910818", "book");
+	}, std::logic_error);
 }
 
 TEST_F(MaterialServiceTest, EditMaterialNullName)
