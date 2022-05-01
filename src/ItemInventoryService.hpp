@@ -84,21 +84,11 @@ public:
 		std::stringstream sqlCmd;
 		std::vector<std::string> result;
 
-		const std::optional<Material> material = this->materialService.GetMaterialByName(_materialName);
 
-		std::string materialId;
-		if(!material.has_value())
+		std::string materialId(this->mysqlService.GetUUID());
+		for(const auto& item: this->materialService.GetAddMaterialSql(materialId, _materialName))
 		{
-			materialId = this->mysqlService.GetUUID();
-
-			for(const auto& item: this->materialService.GetAddMaterialSql(materialId, _materialName))
-			{
-				result.emplace_back(item);	
-			}
-		}	
-		else
-		{
-			throw std::logic_error("已存在相同的货物名称!");
+			result.emplace_back(item);	
 		}
 
 		dataTable = this->mysqlService.Query("select * from itemInventory where materialId = ? and warehouseId = ? and cost = ?", materialId, _wareHouseId, _cost);

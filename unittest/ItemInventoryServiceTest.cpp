@@ -99,21 +99,6 @@ TEST_F(ItemInventoryServiceTest, AddItemInventory)
 	EXPECT_EQ(3, datatable.size());
 }
 
-
-TEST_F(ItemInventoryServiceTest, AddItemInventory_InExistMaterial)
-{
-	MysqlService mysqlService;
-
-	mysqlService.ExecuteCommand("insert into material(id, name) values('b06b91d8-c23e-11ec-bafd-000c29910818', 'existMaterial')");
-	ItemInventoryService itemInventoryService;
-
-
-	EXPECT_THROW
-	({
-		itemInventoryService.GetAddItemInventorySql(mysqlService.GetUUID() , "existMaterial", "f09146a6-ab38-11ec-acff-000c29910818", 12.34);
-	}, std::logic_error);
-}
-
 TEST_F(ItemInventoryServiceTest, CheckIn)
 {
 	MysqlService mysqlService;
