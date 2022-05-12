@@ -18,9 +18,9 @@ set(EXECUTABLE_OUTPUT_PATH ./bin)
 
 add_executable(HttpServer src/main.cpp)
 
-target_include_directories(HttpServer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/include/openssl)
+#target_include_directories(HttpServer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/include/openssl)
 
-target_link_directories(HttpServer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/lib/openssl)
+#target_link_directories(HttpServer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/lib/openssl)
 
 find_library(SSL NAMES libssl.a)
 find_library(CRYPTO NAMES libcrypto.a)
