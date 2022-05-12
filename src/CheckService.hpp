@@ -24,6 +24,8 @@ struct CheckDetailView
 	std::string time;
 };
 
+using CheckNoteView = ItemInventoryView;
+
 class CheckService
 {
 private:
@@ -218,5 +220,56 @@ public:
 		ss.str("");
 
 		return sqlCmd;
+	}
+
+	std::vector<CheckNoteView> GetCheckNoteView(std::string_view _wareHouseId, std::string_view _date)
+	{
+		std::vector<ItemInventoryView> itemInventoryViews(this->itemInventoryService.GetByWareHouseId(_wareHouseId));
+
+		const auto checkInDataTables = this->mysqlService.Query
+		(
+			"select itemInventoryId, sum(number) as number from checkIn c left join itemInventory i on c.itemInventoryId = i.id "
+			"where i.wareHouseId = ? and time < DATE_ADD(STR_TO_DATE(?,'%Y-%m-%d'),INTERVAL 1 DAY) group by itemInventoryId;"
+			,
+			_wareHouseId,
+			_date	
+		);
+		const auto checkOutDataTables = this->mysqlService.Query
+		(
+			"select itemInventoryId, sum(number) as number from checkOut c left join itemInventory i on c.itemInventoryId = i.id "
+			"where i.wareHouseId = ? and time < DATE_ADD(STR_TO_DATE(?,'%Y-%m-%d'),INTERVAL 1 DAY) group by itemInventoryId;"
+			,
+			_wareHouseId,
+			_date	
+		);
+
+		for(auto& item: itemInventoryViews)
+		{
+			item.stock = 0;
+
+			auto checkInIter = std::find_if(checkInDataTables.begin(), checkInDataTables.end(), [&item](const std::unordered_map<std::string, std::optional<std::vector<char>>>& elem) 
+			{
+				return std::string_view(elem.at("itemInventoryId").value().data()) == item.id;
+			});
+
+			if(checkInIter != checkInDataTables.end())
+			{
+				item.stock += std::stod(checkInIter->at("number")->data());
+			}
+
+			auto checkOutIter = std::find_if(checkOutDataTables.begin(), checkOutDataTables.end(), [&item](const std::unordered_map<std::string, std::optional<std::vector<char>>>& elem) 
+			{
+				return std::string_view(elem.at("itemInventoryId").value().data()) == item.id;
+			});
+
+			if(checkOutIter != checkOutDataTables.end())
+			{
+				item.stock -= std::stod(checkOutIter->at("number")->data());
+			}
+		}
+
+		//"select itemInventoryId, sum(number) as number from checkIn c left join itemInventory i on c.itemInventoryId = i.id  where i.wareHouseId = 'b39f64c4-ab37-11ec-acff-000c29910818' and time < DATE_ADD(STR_TO_DATE('2000-01-02','%Y-%m-%d'),INTERVAL 1 DAY) group by itemInventoryId;";
+
+		return itemInventoryViews;
 	}
 };

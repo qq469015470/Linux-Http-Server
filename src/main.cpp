@@ -544,6 +544,37 @@ public:
 			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
 		}
 	}
+
+	web::HttpResponse GetNote(const web::UrlParam& _params, const web::HttpHeader& _header)
+	{
+		try
+		{
+			CheckService checkService;
+
+			const auto views = checkService.GetCheckNoteView(_params["_wareHouseId"].ToString(), _params["_date"].ToString());
+
+			web::JsonObj result;
+			for(const auto& item: views)
+			{
+				web::JsonObj temp;
+
+				temp["id"] = item.id;
+				temp["wareHouseId"] = item.wareHouseId;
+				temp["name"] = item.name;
+				temp["price"] = item.price;
+				temp["stock"] = item.stock;
+
+				result.Push(std::move(temp));
+			}
+
+			return JsonData(JsonDataCode::Success, &result, "");
+		}
+		catch(const std::logic_error& _ex)
+		{
+			return JsonData(JsonDataCode::Error, nullptr, _ex.what());
+		}
+
+	}
 };
 
 int main(int _argc, char* _argv[])
@@ -584,6 +615,7 @@ int main(int _argc, char* _argv[])
 	router->RegisterUrl("GET", "/Check/GetDetail", std::bind(&CheckController::GetDetail, &checkController, std::placeholders::_1, std::placeholders::_2));
 	router->RegisterUrl("POST", "/Check/CancelCheckIn", std::bind(&CheckController::CancelCheckIn, &checkController, std::placeholders::_1, std::placeholders::_2));
 	router->RegisterUrl("POST", "/Check/CancelCheckOut", std::bind(&CheckController::CancelCheckOut, &checkController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("GET", "/Check/GetNote", std::bind(&CheckController::GetCheckNote, &checkController, std::placeholders::_1, std::placeholders::_2));
 
 	web::HttpServer server(std::move(router));
 

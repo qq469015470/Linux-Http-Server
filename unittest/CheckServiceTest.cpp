@@ -131,3 +131,20 @@ TEST_F(CheckServiceTest, CancelCheckInOutOfStock)
 		mysqlService.ExecuteCommandWithTran(sql);
 	});
 }
+
+TEST_F(CheckServiceTest, GetCheckNote)
+{
+	CheckService checkService;
+
+	std::vector<CheckNoteView> views(checkService.GetCheckNoteView("b39f64c4-ab37-11ec-acff-000c29910818", "2000-01-02"));
+	std::sort(views.begin(), views.end(), [](const CheckNoteView& a, const CheckNoteView& b)
+	{
+		return a.stock > b.stock;
+	});
+
+	ASSERT_EQ(2, views.size());
+	EXPECT_STREQ("f485858a-ab37-11ec-acff-000c29910818", views.at(0).id.c_str());
+	EXPECT_EQ(2, views.at(0).stock);
+	EXPECT_STREQ("e358b169-ab37-11ec-acff-000c29910818", views.at(1).id.c_str());
+	EXPECT_EQ(0, views.at(1).stock);
+}
