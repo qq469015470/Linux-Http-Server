@@ -615,7 +615,7 @@ int main(int _argc, char* _argv[])
 	router->RegisterUrl("GET", "/Check/GetDetail", std::bind(&CheckController::GetDetail, &checkController, std::placeholders::_1, std::placeholders::_2));
 	router->RegisterUrl("POST", "/Check/CancelCheckIn", std::bind(&CheckController::CancelCheckIn, &checkController, std::placeholders::_1, std::placeholders::_2));
 	router->RegisterUrl("POST", "/Check/CancelCheckOut", std::bind(&CheckController::CancelCheckOut, &checkController, std::placeholders::_1, std::placeholders::_2));
-	router->RegisterUrl("GET", "/Check/GetNote", std::bind(&CheckController::GetCheckNote, &checkController, std::placeholders::_1, std::placeholders::_2));
+	router->RegisterUrl("GET", "/Check/GetNote", std::bind(&CheckController::GetNote, &checkController, std::placeholders::_1, std::placeholders::_2));
 
 	web::HttpServer server(std::move(router));
 
