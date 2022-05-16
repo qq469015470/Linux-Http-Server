@@ -145,10 +145,10 @@ int main(int _argc, char* _argv[])
 	static TestCall temp;
 	static Chat chat;
 
-	test->RegisterUrl("GET", "/", &TestCall::Home, &temp);
-	test->RegisterUrl("POST", "/test/post", &TestCall::TestPost, &temp);
-	test->RegisterUrl("POST", "/test/number", &TestCall::TestNumber, &temp);
-	test->RegisterUrl("GET", "/Test", &TestCall::Test, &temp);
+	test->RegisterUrl("GET", "/", std::bind(&TestCall::Home, &temp, std::placeholders::_1, std::placeholders::_2));
+	test->RegisterUrl("POST", "/test/post", std::bind(&TestCall::TestPost, &temp, std::placeholders::_1, std::placeholders::_2));
+	test->RegisterUrl("POST", "/test/number", std::bind(&TestCall::TestNumber, &temp, std::placeholders::_1, std::placeholders::_2));
+	test->RegisterUrl("GET", "/Test", std::bind(&TestCall::Test, &temp, std::placeholders::_1, std::placeholders::_2));
 	test->RegisterWebsocket("/chat", &WebsocketOnConnect, &TestWebSocket, &WebsocketDisconnect);
 	test->RegisterWebsocket("/asd", &Chat::OnConnect, &Chat::OnMessage, &Chat::OnDisconnect, &chat);
 

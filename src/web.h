@@ -3,6 +3,7 @@
 #include <cstring>
 #include <string>
 #include <iostream>
+#include <list>
 #include <map>
 #include <stack>
 #include <typeinfo>
@@ -635,6 +636,7 @@ namespace web
 			key(std::move(_key)),
 			value(std::move(_value))
 		{
+			std::transform(this->key.begin(), this->key.end(), this->key.begin(), ::tolower);
 		}
 
 		const std::string& GetKey() const
@@ -647,6 +649,11 @@ namespace web
 			return this->value;	
 		}
 
+		void SetValue(std::string _value)
+		{
+			this->value = std::move(_value);
+		}
+
 	};
 
 	class HttpHeader
@@ -654,25 +661,29 @@ namespace web
 	private:
 		size_t contentLength;
 
-		std::unordered_map<std::string, HttpAttr> attrs;
+		std::list<HttpAttr> attrs;
+		std::unordered_map<std::string, HttpAttr*> attrsMap;
 		std::unordered_map<std::string, std::string> cookies;
 
-		static inline const char* GetAttrValue(const std::unordered_map<std::string, HttpAttr>& _attrs, std::string_view _key)
+		static inline std::string GetAttrValue(const std::unordered_map<std::string, HttpAttr*>& _attrs, std::string _key)
 		{
-			auto iter = _attrs.find(_key.data());
+			std::transform(_key.begin(), _key.end(), _key.begin(), ::tolower);
+			auto iter = _attrs.find(_key);
 			if(iter == _attrs.end())
 			{
 				return "";
 			}
 			else
 			{
-				return iter->second.GetValue().c_str();
+				return iter->second->GetValue();
 			}
 		}
 
-		static std::unordered_map<std::string, HttpAttr> ReadAttr(std::string_view _content)
+		inline void ReadAttr(std::string_view _content)
 		{
-			std::unordered_map<std::string, HttpAttr> attrs;
+			this->attrsMap.clear();
+			this->attrs.clear();
+
 			std::string::size_type left(0);
 			std::string::size_type right(_content.find("\r\n"));
 			while(right != std::string::npos)
@@ -686,15 +697,16 @@ namespace web
 				}
 
 				std::string key(temp.substr(0, pos));
+
 				std::string value(temp.substr(pos + 2, temp.size() - pos - 1));
 				
-				attrs.insert(std::pair<std::string, HttpAttr>(std::move(key), HttpAttr(key, std::move(value))));
+				this->attrs.push_back(HttpAttr(key, std::move(value)));
+				this->attrsMap.insert(std::pair<std::string, HttpAttr*>(this->attrs.back().GetKey(), &attrs.back()));
 
 				left = right + 2;
 				right = _content.find("\r\n", left);
 			}
 
-			return attrs;
 		}
 
 		void ReadCookie(std::string_view _cookie)
@@ -725,30 +737,32 @@ namespace web
 	public:
 		//传递Http头属性开始即首行的路径地址或状态码下一行开始
 		HttpHeader(std::string_view _attrStr):
-			contentLength(0),
-			attrs(this->ReadAttr(_attrStr))
+			contentLength(0)
 		{
-			const std::string temp = this->GetAttrValue(this->attrs, "Content-Length");
+			this->ReadAttr(_attrStr);
+			const std::string temp = this->GetAttrValue(this->attrsMap, "Content-Length");
 			if(!temp.empty())
 				this->contentLength = std::stoll(temp);
 
 
-			this->ReadCookie(this->GetAttrValue(this->attrs, "Cookie"));
+			this->ReadCookie(this->GetAttrValue(this->attrsMap, "Cookie"));
 		}
 
-		HttpHeader(const std::vector<HttpAttr>& _attrs):
-			contentLength(0)
+		HttpHeader(std::vector<HttpAttr> _attrs):
+			contentLength(0),
+			attrs()
 		{
-			for(const auto& item: _attrs)
+			for(auto& item: _attrs)
 			{
-				this->attrs.insert(std::pair<std::string, HttpAttr>(item.GetKey(), item));
+				this->attrs.emplace_back(std::move(item));
+				this->attrsMap.insert(std::pair<std::string, HttpAttr*>(this->attrs.back().GetKey(), &this->attrs.back()));
 			}
 
-			const std::string temp = this->GetAttrValue(this->attrs, "Content-Length");
+			const std::string temp = this->GetAttrValue(this->attrsMap, "Content-Length");
 			if(!temp.empty())
 				this->contentLength = std::stoll(temp);
 			
-			this->ReadCookie(this->GetAttrValue(this->attrs, "Cookie"));
+			this->ReadCookie(this->GetAttrValue(this->attrsMap, "Cookie"));
 		}
 
 		size_t GetContentLength() const	
@@ -756,24 +770,24 @@ namespace web
 			return this->contentLength;
 		}
 
-		const char* GetConnection() const
+		std::string GetConnection() const
 		{
-			return this->GetAttrValue(this->attrs, "Connection");
+			return this->GetAttrValue(this->attrsMap, "Connection");
 		}
 		
-		const char* GetUpgrade() const
+		std::string GetUpgrade() const
 		{
-			return this->GetAttrValue(this->attrs, "Upgrade");
+			return this->GetAttrValue(this->attrsMap, "Upgrade");
 		}
 
-		const char* GetSecWebSocketKey() const
+		std::string GetSecWebSocketKey() const
 		{
-			return this->GetAttrValue(this->attrs, "Sec-WebSocket-Key");
+			return this->GetAttrValue(this->attrsMap, "Sec-WebSocket-Key");
 		}
 
 		std::unordered_set<std::string> GetAcceptEncoding() const
 		{
-			const std::string value = this->GetAttrValue(this->attrs, "Accept-Encoding");
+			const std::string value = this->GetAttrValue(this->attrsMap, "Accept-Encoding");
 
 			
 			std::unordered_set<std::string> result;
@@ -805,16 +819,25 @@ namespace web
 				return iter->second.c_str(); 
 		}
 
-		std::vector<HttpAttr> GetHttpAttrs() const
+		const std::list<HttpAttr>& GetHttpAttrs() const
 		{
-			std::vector<HttpAttr> attrs;
-			for(const auto& item: this->attrs)
-			{
-				attrs.push_back(item.second);
-			}
-
-			return attrs;
+			return this->attrs;
 		}
+
+		void SetHttpAttr(HttpAttr _attr)
+		{
+			auto iter = this->attrsMap.find(_attr.GetKey()); 
+			if(iter == this->attrsMap.end())
+			{
+				this->attrs.emplace_back(std::move(_attr));
+				this->attrsMap.insert(std::pair<std::string, HttpAttr*>(this->attrs.back().GetKey(), &this->attrs.back()));
+			}
+			else
+			{
+				iter->second->SetValue(_attr.GetValue());
+			}
+		}
+
 	};
 
 	struct WebsocketData
@@ -964,7 +987,7 @@ namespace web
 
 		const HttpHeader& GetHeader() const
 		{
-			return *this->header;
+			return this->header.value();
 		}
 	};
 
@@ -972,7 +995,9 @@ namespace web
 	{
 	private:
 		int stateCode;
-		std::vector<char> content;
+		std::optional<std::vector<char>> content;
+		size_t bodyPos;
+		HttpHeader header;
 		std::vector<char> body;
 
 		static inline std::string GetSpec(int _code)
@@ -1027,53 +1052,74 @@ namespace web
 			return -1;
 		}
 
-	public:
-		HttpResponse(int _stateCode, const std::vector<HttpAttr>& _httpAttrs, const char* _body, size_t _bodyLen):
-			stateCode(_stateCode),
-			content({'\0'})
+		inline void ComputeContent()
 		{
+			this->content = {'\0'};
+			std::vector<char> bodyTemp;
+
 			std::string header;
 			
-			header = "HTTP/1.1 " + std::to_string(_stateCode) + " " + HttpResponse::GetSpec(_stateCode) + "\r\n";
+			header = "HTTP/1.1 " + std::to_string(this->stateCode) + " " + HttpResponse::GetSpec(this->stateCode) + "\r\n";
 
-			auto encIter = std::find_if(_httpAttrs.begin(), _httpAttrs.end(), [](const HttpAttr& _attr)
+			auto encIter = std::find_if(this->header.GetHttpAttrs().begin(), this->header.GetHttpAttrs().end(), [](const HttpAttr& _attr)
 			{
-				return _attr.GetKey() == "Content-Encoding" && _attr.GetValue() == "gzip";
+				return _attr.GetKey() == "content-encoding" && _attr.GetValue() == "gzip";
 			});
 
-			if(encIter != _httpAttrs.end())
+			if(encIter != this->header.GetHttpAttrs().end())
 			{
 				std::vector<char> compressByte;
-				size_t destLen(_bodyLen * 2);
-				compressByte.resize(_bodyLen * 2);
+				size_t destLen(this->body.size() * 2);
+				compressByte.resize(this->body.size() * 2);
 
-				GzipCompress(reinterpret_cast<unsigned char*>(const_cast<char*>(_body)), _bodyLen, reinterpret_cast<unsigned char*>(compressByte.data()), &destLen);
+				GzipCompress(reinterpret_cast<unsigned char*>(const_cast<char*>(this->body.data())), this->body.size(), reinterpret_cast<unsigned char*>(compressByte.data()), &destLen);
 				if(destLen < 0)
 					throw std::runtime_error("zip faild");
 
-				this->body = std::move(compressByte);
-				this->body.resize(destLen);
+				bodyTemp = std::move(compressByte);
+				bodyTemp.resize(destLen);
 			}	
 			else
 			{
-				this->body.resize(_bodyLen);
-				std::copy(_body, _body + _bodyLen, this->body.data());
+				bodyTemp.resize(this->body.size());
+				std::copy(this->body.data(), this->body.data() + this->body.size(), bodyTemp.data());
 			}
 
 			//if(_bodyLen > 0)
-				header += "Content-Length: " + std::to_string(this->body.size()) + "\r\n";
+				header += "content-length: " + std::to_string(bodyTemp.size()) + "\r\n";
 
-			for(const auto& item: _httpAttrs)
+			for(const auto& item: this->header.GetHttpAttrs())
 			{
 				header += item.GetKey() + ": " + item.GetValue() + "\r\n";
 			}
 
 			header += "\r\n";
 			
-			this->content.resize(header.size() + this->body.size());
+			this->content->resize(header.size() + bodyTemp.size());
+			this->bodyPos = header.size();
 
-			std::copy(header.data(), header.data() + header.size(), this->content.data());
-			std::copy(this->body.data(), this->body.data() + this->body.size(), this->content.data() + header.size());
+			std::copy(header.data(), header.data() + header.size(), this->content->data());
+			std::copy(bodyTemp.data(), bodyTemp.data() + bodyTemp.size(), this->content->data() + header.size());
+		}
+
+	public:
+		HttpResponse(int _stateCode, std::vector<HttpAttr> _httpAttrs, const char* _body, size_t _bodyLen):
+			stateCode(_stateCode),
+			header(std::move(_httpAttrs)),
+			body(_body, _body + _bodyLen)
+		{
+		}
+
+		void UseGzipBody()
+		{
+			this->content.reset();
+			this->header.SetHttpAttr(HttpAttr("Content-Encoding", "gzip"));
+		}
+
+		void KeepAlive()
+		{
+			this->content.reset();
+			this->header.SetHttpAttr(HttpAttr("Connection", "keep-alive"));
 		}
 
 		int GetStateCode() const
@@ -1081,24 +1127,36 @@ namespace web
 			return this->stateCode;
 		}
 
-		const char* GetContent() const
+		const char* GetContent() 
 		{
-			return this->content.data();
+			if(!this->content.has_value())
+				this->ComputeContent();
+
+			return this->content->data();
 		}
 
-		size_t GetContentSize() const
+		size_t GetContentSize()
 		{
-			return this->content.size();
+			if(!this->content.has_value())
+				this->ComputeContent();
+
+			return this->content->size();
 		}
 
-		const char* GetBody() const
+		const char* GetBody()
 		{
-			return this->body.data();
+			if(!this->content.has_value())
+				this->ComputeContent();
+
+			return this->content->data() + this->bodyPos;
 		}
 
-		size_t GetBodySize() const
+		size_t GetBodySize()
 		{
-			return this->body.size();
+			if(!this->content.has_value())
+				this->ComputeContent();
+
+			return this->content->size() - this->bodyPos;
 		}
 	};
 
@@ -1131,7 +1189,7 @@ namespace web
 
 		file.close();
 
-		return HttpResponse(stateCode, {{"Content-Type", "text/html; charset=utf-8"}, {"Content-Encoding", "gzip"}}, body.data(), body.size());
+		return HttpResponse(stateCode, {{"Content-Type", "text/html; charset=utf-8"}}, body.data(), body.size());
 	}
 
 	HttpResponse Json(const JsonObj& _json)
@@ -1942,12 +2000,6 @@ namespace web
 					//{"Cache-Control", "no-store"}
 					{"Cache-Control", "max-age=315360000"}
 				};
-
-				const std::unordered_set<std::string> acceptEncoding = _request.GetHeader().GetAcceptEncoding();
-				if(acceptEncoding.find("gzip") != acceptEncoding.end())
-				{
-					attrs.push_back({"Content-Encoding", "gzip"});
-				}
 		
 				return HttpResponse(200, std::move(attrs), body.data(), bodyLen);
 			}
@@ -2050,8 +2102,7 @@ namespace web
 		
 				HttpResponse response(101, httpAttrs, nullptr, 0);
 		
-				this->SendHttpResponse(_context, std::move(response));
-				this->httpResponseCallBack(request, response);
+				this->SendHttpResponse(_context, request, std::move(response));
 		
 				std::cout << "回复websocket完毕" << std::endl;
 		
@@ -2087,8 +2138,7 @@ namespace web
 				{
 					HttpResponse response(500, {{"Content-Type", "text/html; charset=utf-8"}}, _error.data(), _error.size());
 					                             
-					this->SendHttpResponse(_context, std::move(response));
-					this->httpResponseCallBack(request, response);
+					this->SendHttpResponse(_context, request, std::move(response));
 				};
 		
 		
@@ -2103,8 +2153,7 @@ namespace web
 					try
 					{
 						HttpResponse response = this->router->RunCallback(request.GetType(), request.GetUrl(), params, request.GetHeader());
-						this->SendHttpResponse(_context, std::move(response));
-						this->httpResponseCallBack(request, response);
+						this->SendHttpResponse(_context, request, std::move(response));
 					}
 					catch(const std::exception& _ex)
 					{
@@ -2118,8 +2167,7 @@ namespace web
 					{
 						HttpResponse response(this->GetRootFileResponse(request));
 
-						this->SendHttpResponse(_context, std::move(response));
-						this->httpResponseCallBack(request, response);
+						this->SendHttpResponse(_context, request, std::move(response));
 					}
 					catch(const std::exception& _ex)
 					{
@@ -2130,14 +2178,13 @@ namespace web
 				{
 					HttpResponse response(404, {}, nullptr, 0);
 		        		                             
-		        		this->SendHttpResponse(_context, std::move(response));
-					this->httpResponseCallBack(request, response);
+		        		this->SendHttpResponse(_context, request, std::move(response));
 				}
 				
-				if(request.GetHeader().GetConnection() != std::string("keep-alive"))
+				if(request.GetHeader().GetConnection() == std::string("close"))
 				{
 					//this->CloseSocket(epfd, context->socket->Get());
-					_context->isClose = true;
+					//_context->isClose = true;
 				}	
 			}
 		}
@@ -2251,8 +2298,25 @@ namespace web
 			return HttpRequest(content.data());
 		}
 
-		inline void SendHttpResponse(SocketContext* _context, const HttpResponse& _response)
+		inline void SendHttpResponse(SocketContext* _context, const HttpRequest& _request, HttpResponse _response)
 		{
+			//====================
+			//根据请求头响应相关内容
+			
+			const std::unordered_set<std::string> acceptEncoding = _request.GetHeader().GetAcceptEncoding();
+			if(acceptEncoding.find("gzip") != acceptEncoding.end())
+			{
+				_response.UseGzipBody();
+			}
+
+			if(_request.GetHeader().GetConnection() == "keep-alive")
+			{
+				_response.KeepAlive();
+			}
+
+			//====================
+
+
 			const size_t contentSize = _response.GetContentSize();
 			const char* content = _response.GetContent();
 
@@ -2267,6 +2331,7 @@ namespace web
 
 
 			std::cout << "写入带发送上下文" << std::endl;
+			this->httpResponseCallBack(_request, _response);
 		}
 
 		void ListenProc(sockaddr_in _sockAddr)
