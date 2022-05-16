@@ -182,8 +182,8 @@ web::HttpResponse JsonData(JsonDataCode _code, const web::JsonObj* const _data, 
 
 	temp["msg"] = _msg;
 
-	std::cout << "data:" << std::endl;
-	std::cout << temp["data"].ToJson() << std::endl;
+	//std::cout << "data:" << std::endl;
+	//std::cout << temp["data"].ToJson() << std::endl;
 
 	return web::Json(temp);
 }
@@ -339,8 +339,8 @@ public:
 				data.Push(std::move(temp));
 			}
 
-			std::cout << "will response:" << std::endl;
-			std::cout << data.ToJson() << std::endl;
+			//std::cout << "will response:" << std::endl;
+			//std::cout << data.ToJson() << std::endl;
 			
 			return JsonData(JsonDataCode::Success, &data, "");
 		}

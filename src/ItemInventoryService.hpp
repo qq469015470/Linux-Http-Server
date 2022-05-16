@@ -158,9 +158,9 @@ public:
 						(
 						 "select material.id, material.name from itemInventory "
 						 "left join material on itemInventory.materialId = material.id "
-						 "where wareHouseId = ? and material.name like CONCAT('%',?,'%')",
+						 "where wareHouseId = ? and material.name like CONCAT('%',?,'%') ESCAPE '$'",
 						 _wareHouseId,
-						 _materialName
+						 std::string("$") + this->mysqlService.GetSafeSqlString(_materialName)
 						);
 
 		std::vector<Material> result;

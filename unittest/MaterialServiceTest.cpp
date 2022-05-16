@@ -50,6 +50,15 @@ TEST_F(MaterialServiceTest, ContainsMaterialByName)
 	EXPECT_STREQ("AMaterial", materials.front().name.c_str());
 }
 
+TEST_F(MaterialServiceTest, ContainsMaterialByNameInPercentChar)
+{
+	MaterialService materialService;
+
+	const std::vector<Material> materials = materialService.ContainsMaterialByName("%");
+
+	ASSERT_EQ(0, materials.size());
+}
+
 TEST_F(MaterialServiceTest, GetMaterialById)
 {
 	MaterialService materialService;

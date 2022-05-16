@@ -44,7 +44,7 @@ public:
 
 	inline std::vector<Material> ContainsMaterialByName(std::string_view _materialName)
 	{
-		auto datatable = this->mysqlService.Query("select * from material where name like CONCAT('%',?,'%')", _materialName);
+		auto datatable = this->mysqlService.Query("select * from material where name like CONCAT('%',?,'%') ESCAPE '$'", std::string("$") + this->mysqlService.GetSafeSqlString(_materialName));
 
 		std::vector<Material> result;
 		for(const auto& item: datatable)

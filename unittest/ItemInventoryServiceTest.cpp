@@ -57,6 +57,14 @@ TEST_F(ItemInventoryServiceTest, ContainsMaterialName)
 	EXPECT_STREQ("anotherMaterial", materials.front().name.c_str());
 }
 
+TEST_F(ItemInventoryServiceTest, ContainsMaterialNameByPercentChar)
+{
+	ItemInventoryService itemInventoryService;
+	const std::vector<Material> materials = itemInventoryService.GetContainsMaterialName("f09146a6-ab38-11ec-acff-000c29910818", "%");
+
+	ASSERT_EQ(0, materials.size());
+}
+
 TEST_F(ItemInventoryServiceTest, GetItemInvenotoryList)
 {
 	ItemInventoryService itemInventoryService;
