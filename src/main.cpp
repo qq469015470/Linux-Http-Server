@@ -149,8 +149,14 @@ int main(int _argc, char* _argv[])
 	test->RegisterUrl("POST", "/test/post", std::bind(&TestCall::TestPost, &temp, std::placeholders::_1, std::placeholders::_2));
 	test->RegisterUrl("POST", "/test/number", std::bind(&TestCall::TestNumber, &temp, std::placeholders::_1, std::placeholders::_2));
 	test->RegisterUrl("GET", "/Test", std::bind(&TestCall::Test, &temp, std::placeholders::_1, std::placeholders::_2));
-	test->RegisterWebsocket("/chat", &WebsocketOnConnect, &TestWebSocket, &WebsocketDisconnect);
-	test->RegisterWebsocket("/asd", &Chat::OnConnect, &Chat::OnMessage, &Chat::OnDisconnect, &chat);
+	test->RegisterWebsocket("/chat", &::WebsocketOnConnect, &::TestWebSocket, &::WebsocketDisconnect);
+	test->RegisterWebsocket
+	(
+		"/asd", 
+		std::bind(&Chat::OnConnect, &chat, std::placeholders::_1, std::placeholders::_2), 
+		std::bind(&Chat::OnMessage, &chat, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+		std::bind(&Chat::OnDisconnect, &chat, std::placeholders::_1)
+	);
 
 	web::HttpServer server(std::move(test));
 
