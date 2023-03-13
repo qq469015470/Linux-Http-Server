@@ -12,6 +12,8 @@
 #include <chrono>
 #include <netdb.h>
 #include <filesystem>
+#include<iterator>
+
 
 class DateTime
 {
@@ -579,6 +581,20 @@ public:
 
 int main(int _argc, char* _argv[])
 {	
+	std::ifstream ifs("appsettings.json" , std::ios::in );
+	std::string str;
+	std::copy(std::istream_iterator<unsigned char>(ifs),std::istream_iterator<unsigned char>(),back_inserter(str) );
+
+	const web::JsonObj setting = web::JsonObj::ParseJson(str);
+
+	MysqlService::SetConnect
+	(
+		setting["ConnectionStrings"]["dangkou_prod"]["host"].ToString(),
+		setting["ConnectionStrings"]["dangkou_prod"]["username"].ToString(),
+		setting["ConnectionStrings"]["dangkou_prod"]["password"].ToString(),
+		setting["ConnectionStrings"]["dangkou_prod"]["database"].ToString()
+	);
+
 	if(_argc != 3)
 	{
 		std::cout << "only have 2 argument! frist is ipaddress, second is port." << std::endl;
@@ -587,8 +603,6 @@ int main(int _argc, char* _argv[])
 
 	const char* ip = _argv[1];
 	const char* port = _argv[2];
-
-	MysqlService::SetDataBase("dangkou_prod");
 
 	std::unique_ptr<web::Router> router(new web::Router);
 

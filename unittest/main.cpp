@@ -12,7 +12,7 @@
 
 int main(int _argc, char** _argv)
 {
-	MysqlService::SetDataBase("dangkou_test");
+	MysqlService::SetConnect("localhost", "root", "123456", "dangkou_test");
 
         ::testing::InitGoogleTest(&_argc, _argv);
 

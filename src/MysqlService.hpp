@@ -11,7 +11,10 @@
 class MysqlService
 {
 private:
-	static inline std::string dataBaseName = "";
+	static inline std::string host = "";
+	static inline std::string username = "";
+	static inline std::string password = "";
+	static inline std::string databaseName = "";
 
 	MYSQL mysql;
 	MYSQL_STMT* stmt;
@@ -227,7 +230,7 @@ public:
 	MysqlService()
 	{
 		mysql_init(&this->mysql);
-		mysql_real_connect(&this->mysql, "localhost", "root", "123456", std::remove_pointer<decltype(this)>::type::dataBaseName.c_str(), 3306, NULL, 0);
+		mysql_real_connect(&this->mysql, std::remove_pointer<decltype(this)>::type::host.c_str(), std::remove_pointer<decltype(this)>::type::username.c_str(), std::remove_pointer<decltype(this)>::type::password.c_str(), std::remove_pointer<decltype(this)>::type::databaseName.c_str(), 3306, NULL, 0);
 
 		this->stmt = mysql_stmt_init(&this->mysql);
 		if(!this->stmt)
@@ -242,9 +245,12 @@ public:
 		mysql_close(&this->mysql);
 	}
 
-	static inline void SetDataBase(std::string_view _dataBaseName)
+	static inline void SetConnect(std::string _host, std::string _username, std::string _password, std::string _databaseName)
 	{
-		dataBaseName = _dataBaseName;
+		host = _host;
+		username = _username;
+		password = _password;
+		databaseName = _databaseName;
 	}
 
 	template<typename... ARGS>
